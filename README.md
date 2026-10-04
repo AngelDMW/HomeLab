@@ -1,42 +1,39 @@
-# 🖥️ MrDavid's Home Lab Infrastructure
+# 🌩️ HomeLab: OptiPlex 5040
 
-![Debian](https://img.shields.io/badge/Debian-12-A81D33?style=for-the-badge&logo=debian)
-![Docker](https://img.shields.io/badge/Docker-24.0-2496ED?style=for-the-badge&logo=docker)
-![Tailscale](https://img.shields.io/badge/Tailscale-VPN-white?style=for-the-badge&logo=tailscale)
-![Nginx](https://img.shields.io/badge/Nginx-Web_Server-009639?style=for-the-badge&logo=nginx)
+![Debian](https://img.shields.io/badge/Debian-12-A81D33?style=flat-square&logo=debian)
+![Docker](https://img.shields.io/badge/Docker-24.0-2496ED?style=flat-square&logo=docker)
+![Tailscale](https://img.shields.io/badge/Tailscale-Mesh-white?style=flat-square&logo=tailscale)
 
-Bienvenido al repositorio de mi infraestructura autoalojada (Self-Hosted Home Lab). Este proyecto documenta el servidor físico que administro desde Santiago, República Dominicana, el cual aloja mi portafolio web interactivo, nube privada y servicios de red locales operando 24/7.
+My personal self-hosted infrastructure. Running on a Dell OptiPlex 5040 out of Santiago, DR. This lab handles my live web portfolio, a private cloud environment, and local network services—all running 24/7 without exposing local ports to the open internet.
 
-## 🧠 Arquitectura y Filosofía
-El objetivo de este servidor es mantener un control absoluto sobre mis datos y despliegues sin depender de servicios en la nube, manteniendo un consumo energético eficiente y una seguridad robusta sin necesidad de abrir puertos en el router local.
+## 🏗️ Hardware Specs
+* **Host:** Dell OptiPlex 5040
+* **OS:** Debian 12 (Bookworm)
+* **Network:** Bridged routers (Wind ZTE LAN -> Huawei Claro AP)
+* **Connected Clients:** MacBook, iPhone 12 Mini, Nintendo Switch (Kubuntu ARM64)
 
-### ⚙️ Hardware (El Servidor)
-- **Máquina:** Dell OptiPlex 5040
-- **Red Local:** Configuración de routers en puente (Wind ZTE LAN -> Huawei Claro AP)
-- **Dispositivos Conectados:** MacBook, iPhone 12 Mini, Nintendo Switch (Kubuntu ARM64)
+## ⚙️ The Stack
+I rely heavily on Docker for containerization and Tailscale for zero-trust networking. 
 
-### 🧰 Software Stack
-- **OS:** Debian GNU/Linux 12 (Bookworm)
-- **Contenedores:** Docker + Portainer (Gestión de UI)
-- **Networking:** Tailscale (Zero-Trust VPN) + Tailscale Funnel (Túneles públicos HTTPS)
+* **Containers:** Managed via Docker Compose and Portainer.
+* **Reverse Proxy:** Nginx routing internal traffic.
+* **Security:** No port-forwarding on the physical ISP router. Public exposure (like my dev portfolio) is handled securely via **Tailscale Funnel** utilizing SSL/HTTPS tunnels.
+
+## 🚀 Deployed Services
+
+| Service | Purpose | Exposure |
+| :--- | :--- | :--- |
+| **[MrDavid.dev](#)** | Live interactive dev portfolio | Public (Tailscale Funnel) |
+| **Nginx** | Reverse proxy handling web traffic | Port 8081 |
+| **Nextcloud** | Private cloud managing 66GB+ of personal media | Tailnet (Private) |
+| **NC Recognize** | Local ML (TensorFlow) for photo tagging | Internal |
+| **Portainer** | Container management UI | Internal |
+
+## 📂 Repository Structure
+* `/docker` - Base Compose files for all running services.
+* `/web-portfolio` - Source code for my live SPA portfolio.
+* `/docs` - Architecture diagrams and setup documentation.
 
 ---
-
-## 🚀 Servicios Desplegados
-
-| Servicio | Descripción | Exposición |
-|----------|-------------|------------|
-| **[MrDavid.dev](#)** | Portafolio personal Full-Stack interactivo servido nativamente. | Pública (Tailscale Funnel) |
-| **Nginx** | Servidor web proxy inverso de alto rendimiento. | Puerto 8081 |
-| **Nextcloud** | Nube privada para gestión de archivos fotográficos y galerías. | Privada (Tailnet) |
-| **Portainer** | Panel de control visual para la gestión de contenedores Docker. | Privada |
-
----
-
-## 🛡️ Seguridad y Redes (Zero-Trust)
-Una de las características principales de este Home Lab es su seguridad. **No hay puertos abiertos hacia internet en el router físico**. Toda la exposición pública (como el portafolio) se realiza a través de **Tailscale Funnel**, el cual crea un túnel seguro cifrado mediante SSL.
-
-## 👨‍💻 Autor
-**Angel Diaz** - *Full-Stack & Mobile Developer*
-- [GitHub](https://github.com/AngelDMW)
-- [LinkedIn](https://www.linkedin.com/in/angel-diaz-911a39238)
+**Angel Diaz** — *Full-Stack & Mobile Engineer*  
+[GitHub](https://github.com/AngelDMW) • [LinkedIn](https://www.linkedin.com/in/angel-diaz-911a39238)

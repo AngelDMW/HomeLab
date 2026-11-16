@@ -1,39 +1,27 @@
-# 🌩️ HomeLab: OptiPlex 5040
+# HomeLab Server - Dell OptiPlex 5040
 
-![Debian](https://img.shields.io/badge/Debian-12-A81D33?style=flat-square&logo=debian)
-![Docker](https://img.shields.io/badge/Docker-24.0-2496ED?style=flat-square&logo=docker)
-![Tailscale](https://img.shields.io/badge/Tailscale-Mesh-white?style=flat-square&logo=tailscale)
+Infraestructura self-hosted sobre Debian Linux y Docker para nube privada, bloqueo DNS y streaming multimedia automatizado.
 
-My personal self-hosted infrastructure. Running on a Dell OptiPlex 5040 out of Santiago, DR. This lab handles my live web portfolio, a private cloud environment, and local network services—all running 24/7 without exposing local ports to the open internet.
+## Hardware y Red
+- Equipo: Dell OptiPlex 5040 (Debian Linux + Docker)
+- Almacenamiento: ~88 GB optimizados con limite de calidad
+- Red: Router ZTE + AP Huawei | IP Local: 192.168.1.3 | Tailscale: 100.98.35.64
 
-## 🏗️ Hardware Specs
-* **Host:** Dell OptiPlex 5040
-* **OS:** Debian 12 (Bookworm)
-* **Network:** Bridged routers (Wind ZTE LAN -> Huawei Claro AP)
-* **Connected Clients:** MacBook, iPhone 12 Mini, Nintendo Switch (Kubuntu ARM64)
+## Servicios Docker
+- Infraestructura: Nextcloud, Portainer, Pi-hole, Tailscale
+- Jellyfin (:8096): Servidor multimedia y TV en Vivo (IPTV)
+- Seerr (:5055): Portal de solicitud de peliculas y series
+- Radarr (:7878) y Sonarr (:8989): Automatizacion de peliculas y series
+- Prowlarr (:9696) y FlareSolverr (:8191): Indexadores y bypass Cloudflare
+- qBittorrent (:8081): Cliente BitTorrent
 
-## ⚙️ The Stack
-I rely heavily on Docker for containerization and Tailscale for zero-trust networking. 
+## Flujo de Calidad y TV en Vivo
+- Idioma: Custom Format Dual/Latino/Spanish (1000 pts) con minimo 0 y respaldo en ingles
+- Espacio: Perfil HD-1080p limitado a max 4.5 GiB/h en WEBDL y Bluray
+- Live TV: Listas M3U (do.m3u y spa.m3u) + guia XMLTV y favoritos familiares
 
-* **Containers:** Managed via Docker Compose and Portainer.
-* **Reverse Proxy:** Nginx routing internal traffic.
-* **Security:** No port-forwarding on the physical ISP router. Public exposure (like my dev portfolio) is handled securely via **Tailscale Funnel** utilizing SSL/HTTPS tunnels.
-
-## 🚀 Deployed Services
-
-| Service | Purpose | Exposure |
-| :--- | :--- | :--- |
-| **[MrDavid.dev](#)** | Live interactive dev portfolio | Public (Tailscale Funnel) |
-| **Nginx** | Reverse proxy handling web traffic | Port 8081 |
-| **Nextcloud** | Private cloud managing 66GB+ of personal media | Tailnet (Private) |
-| **NC Recognize** | Local ML (TensorFlow) for photo tagging | Internal |
-| **Portainer** | Container management UI | Internal |
-
-## 📂 Repository Structure
-* `/docker` - Base Compose files for all running services.
-* `/web-portfolio` - Source code for my live SPA portfolio.
-* `/docs` - Architecture diagrams and setup documentation.
-
----
-**Angel Diaz** — *Full-Stack & Mobile Engineer*  
-[GitHub](https://github.com/AngelDMW) • [LinkedIn](https://www.linkedin.com/in/angel-diaz-911a39238)
+## Estructura
+- docker/media-stack/docker-compose.yml
+- .gitignore
+- README.md
+- Telegram Bot (docker/telegram-bot): Notificaciones y control remoto

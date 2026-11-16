@@ -1,0 +1,8 @@
+services:
+  bot:
+    build: .
+    container_name: optiplex-chatops
+    restart: unless-stopped
+    network_mode: "host"
+    env_file:
+      - .env

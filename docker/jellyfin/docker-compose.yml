@@ -1,0 +1,14 @@
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    network_mode: "host"
+    environment:
+      - TZ=America/Santo_Domingo
+    volumes:
+      - ./config:/config
+      - ./cache:/cache
+      - /home/mrdavid/HomeLab/media:/media
+    devices:
+      - /dev/dri:/dev/dri
+    restart: unless-stopped

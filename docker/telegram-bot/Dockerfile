@@ -3,4 +3,4 @@ WORKDIR /app
 COPY package.json .
 RUN npm install
 COPY bot.js .
-CMD ["node", "bot.js"]
+CMD ["node", "--dns-result-order=ipv4first", "bot.js"]

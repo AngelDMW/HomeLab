@@ -1,1 +1,13 @@
-# Nextcloud Docker Compose configuration
+services:
+  nextcloud:
+    image: nextcloud:latest
+    container_name: nextcloud
+    ports:
+      - "8080:80"
+    volumes:
+      - nextcloud_nextcloud_data:/var/www/html
+    restart: unless-stopped
+
+volumes:
+  nextcloud_nextcloud_data:
+    external: true

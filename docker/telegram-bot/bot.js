@@ -3,7 +3,12 @@ const TelegramBot = require('node-telegram-bot-api');
 const { exec } = require('child_process');
 const https = require('https');
 
-const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
+const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { 
+    polling: true,
+    request: {
+        family: 4
+    }
+});
 const myChatId = parseInt(process.env.CHAT_ID);
 const apiKey = process.env.HF_API_KEY;
 
@@ -42,7 +47,8 @@ bot.on('message', async (msg) => {
             bot.sendMessage(myChatId, `[Ejecutando: ${match[1]}]`);
             exec(match[1], async (err, stdout, stderr) => {
                 conversacion.push({ role: "assistant", content: respuesta });
-                conversacion.push({ role: "user", content: `Salida:\n${(stdout||stderr||err.message).substring(0,800)}` });
+                conversacion.push({ role: "user", content: `Salida:
+${(stdout||stderr||err.message).substring(0,800)}` });
                 let resp2 = await llamarHuggingFace(conversacion);
                 conversacion.push({ role: "assistant", content: resp2 });
                 bot.sendMessage(myChatId, resp2);

@@ -9,6 +9,7 @@ services:
     environment:
       TZ: 'America/Santo_Domingo'
       WEBPASSWORD: '${PIHOLE_PASSWORD:-admin}'
+      FTLCONF_dns_listeningMode: 'ALL'
     volumes:
       - pihole_data:/etc/pihole
       - dnsmasq_data:/etc/dnsmasq.d

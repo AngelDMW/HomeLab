@@ -147,6 +147,7 @@ function helpText() {
     '/telemetry — CPU, RAM, disco, red y sensores',
     '/containers — estado y reinicio con un toque',
     '/queue — descargas qBittorrent y solicitudes Seerr',
+    '/buscar &lt;título&gt; — buscar y solicitar una película en Seerr',
     '/disk — desglose de almacenamiento',
     '/briefing — reporte ejecutivo inmediato',
     '/iptv — salud de canales en Jellyfin',

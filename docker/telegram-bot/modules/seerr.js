@@ -11,6 +11,14 @@ const STATUS_LABELS = {
   5: 'Disponible',
 };
 
+const MEDIA_STATUS_LABELS = {
+  1: 'No solicitada',
+  2: 'Pendiente',
+  3: 'Procesando',
+  4: 'Parcialmente disponible',
+  5: 'Disponible en Jellyfin',
+};
+
 class SeerrClient {
   constructor(options) {
     this.url = options.url;
@@ -20,13 +28,17 @@ class SeerrClient {
   }
 
   async api(pathname, options = {}) {
-    const { timeout = 10000 } = options;
+    const { timeout = 10000, method = 'GET', body = null } = options;
     const response = await rawRequest(`${this.url}${pathname}`, {
+      method,
       headers: { 'X-Api-Key': this.apiKey },
+      body,
       timeout,
     });
     if (response.status < 200 || response.status >= 300) {
-      throw new Error(`Seerr HTTP ${response.status}`);
+      const detail =
+        typeof response.data === 'string' ? response.data.slice(0, 160) : '';
+      throw new Error(`Seerr HTTP ${response.status} ${detail}`.trim());
     }
     return response.data;
   }
@@ -83,6 +95,42 @@ class SeerrClient {
   statusLabel(status) {
     return STATUS_LABELS[status] || `Estado ${status}`;
   }
+
+  mediaStatusLabel(status) {
+    return MEDIA_STATUS_LABELS[status] || 'No solicitada';
+  }
+
+  async searchMovies(term) {
+    const query = encodeURIComponent(String(term || '').trim());
+    if (!query) throw new Error('Término de búsqueda vacío');
+    const data = await this.api(`/api/v1/search?query=${query}&language=es`);
+    return (Array.isArray(data?.results) ? data.results : [])
+      .filter((item) => item.mediaType === 'movie' && item.title)
+      .slice(0, 6)
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        year: item.releaseDate ? String(item.releaseDate).slice(0, 4) : '',
+        status: Number(item.mediaInfo?.status) || 0,
+        statusLabel: this.mediaStatusLabel(Number(item.mediaInfo?.status) || 0),
+      }));
+  }
+
+  async mediaDetails(type, id) {
+    return this.api(`/api/v1/${type}/${id}`);
+  }
+
+  async createRequest(mediaType, mediaId) {
+    return this.api('/api/v1/request', {
+      method: 'POST',
+      body: { mediaType, mediaId },
+    });
+  }
 }
 
-module.exports = { SeerrClient, seerr: new SeerrClient(config.seerr), STATUS_LABELS };
+module.exports = {
+  SeerrClient,
+  seerr: new SeerrClient(config.seerr),
+  STATUS_LABELS,
+  MEDIA_STATUS_LABELS,
+};

@@ -99,9 +99,10 @@ El contenedor `optiplex-chatops` dejó de ser un bot de comandos y ahora es un e
 - `/mission` · `/status` — panel principal con telemetría y botones inline.
 - `/containers` — estado de la flota y reinicio de cualquier servicio con un toque.
 - `/queue` — progreso de qBittorrent, pausar/reanudar y solicitudes de Seerr.
+- `/buscar <título>` — busca películas en Seerr y permite solicitarlas con un toque.
 - `/disk` — desglose de consumo (Nextcloud, media, Docker).
 - `/briefing`, `/iptv`, `/maint`, `/selftest`, `/help`.
-- Lenguaje natural: “estado del servidor”, “reinicia sonarr”, “pausa las descargas”, “¿cuánto espacio libre queda?”.
+- Lenguaje natural: “estado del servidor”, “reinicia sonarr”, “pausa las descargas”, “busca Cars”, “¿cuánto espacio libre queda?”.
 - Los botones de limpieza solo purgan capas huérfanas y build cache. La eliminación de un torrent conserva siempre los archivos descargados.
 
 ### Montajes y modelo de seguridad

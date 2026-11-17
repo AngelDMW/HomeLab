@@ -26,7 +26,7 @@
 ## Optiplex Brain (ChatOps Autónomo)
 - Código: `/home/mrdavid/HomeLab/docker/telegram-bot` (`bot.js`, `config.js`, `lib/`, `modules/`).
 - Motores: telemetría cada 60 s, autorreparación de contenedores (2 intentos, espera 20 s), centinela de torrents estancados, guardián de almacenamiento (35 GB preventivo / 20 GB crítico), bus de eventos media/red, vigilante de accesos externos y briefing diario a las 08:00 (`America/Santo_Domingo`).
-- Consola Telegram: `/mission`, `/status`, `/containers`, `/queue`, `/disk`, `/briefing`, `/iptv`, `/maint`, `/selftest`, `/help`; también acepta lenguaje natural y botones inline.
+- Consola Telegram: `/mission`, `/status`, `/containers`, `/queue`, `/buscar`, `/disk`, `/briefing`, `/iptv`, `/maint`, `/selftest`, `/help`; también acepta lenguaje natural y botones inline.
 - Estado persistente: `/home/mrdavid/HomeLab/docker/telegram-bot/data/state.json` (ignorado por git).
 - Prueba integral: `docker exec optiplex-chatops node --dns-result-order=ipv4first bot.js --selftest` (envía reporte real a Telegram).
 - Reconstruir: `cd /home/mrdavid/HomeLab/docker/telegram-bot && docker compose up -d --build`.

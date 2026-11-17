@@ -123,6 +123,62 @@ async function clearButtons(messageId) {
   }
 }
 
+const pendingMovies = new Map();
+
+async function searchAndRequestMovies(term) {
+  await bot.sendChatAction(config.telegram.chatId, 'typing').catch(() => {});
+  const results = await seerr.searchMovies(term);
+  if (results.length === 0) {
+    return notify(`🔎 Sin resultados de películas para <b>${esc(term)}</b>.`);
+  }
+
+  const lines = [
+    '🔎 <b>BUSCAR PELÍCULA</b>',
+    `<i>Consulta: ${esc(term)}</i>`,
+    '━━━━━━━━━━━━━━━━━━━━',
+  ];
+  const rows = [];
+  for (const movie of results) {
+    pendingMovies.set(String(movie.id), movie);
+    lines.push(
+      `• <b>${esc(movie.title)}</b>${movie.year ? ` (${movie.year})` : ''} · ${esc(movie.statusLabel)}`,
+    );
+    if (movie.status === 0 || movie.status === 1) {
+      const label = `📥 ${movie.title.slice(0, 30)}${movie.year ? ` (${movie.year})` : ''}`;
+      rows.push([
+        { text: label, callback_data: `request:movie:${movie.id}` },
+      ]);
+    }
+  }
+  rows.push([{ text: '⬅️ Menú principal', callback_data: 'view:back' }]);
+  lines.push('', '<i>Toca una película para enviarla a Seerr.</i>');
+  await notify(lines.join('\n'), {
+    reply_markup: { inline_keyboard: rows },
+  });
+}
+
+async function requestMovie(id, cached = null) {
+  const details = await seerr.mediaDetails('movie', id).catch(() => null);
+  const status = Number(details?.mediaInfo?.status) || 0;
+  const title = cached?.title || details?.title || `TMDB ${id}`;
+  if (status >= 2) {
+    return notify(
+      `ℹ️ <b>${esc(title)}</b> ya está en Seerr: ${esc(seerr.mediaStatusLabel(status))}.`,
+    );
+  }
+  await seerr.createRequest('movie', id);
+  return notify(
+    `✅ Solicitud enviada a Seerr para <b>${esc(title)}</b>.\nRadarr la procesará según tus perfiles.`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🔗 Ver en Seerr', url: config.urls.seerr }],
+        ],
+      },
+    },
+  );
+}
+
 async function getMainView(options = {}) {
   const [metrics, containers] = await Promise.all([
     host.collect(),
@@ -268,6 +324,7 @@ const COMMANDS = [
   { command: 'telemetry', description: 'Telemetría en vivo' },
   { command: 'containers', description: 'Estado y reinicio de contenedores' },
   { command: 'queue', description: 'Cola de descargas y solicitudes' },
+  { command: 'buscar', description: 'Buscar y solicitar una película' },
   { command: 'briefing', description: 'Reporte ejecutivo ahora' },
   { command: 'iptv', description: 'Salud de IPTV en Jellyfin' },
   { command: 'disk', description: 'Detalle de almacenamiento' },
@@ -283,7 +340,8 @@ async function handleCommand(text) {
     .split(/\s+/)[0]
     .split('@')[0]
     .toLowerCase();
-  const argument = text.trim().split(/\s+/)[1];
+  const argument = text.trim().split(/\s+/).slice(1).join(' ');
+  const firstArgument = argument.split(/\s+/)[0];
 
   switch (command) {
     case 'start':
@@ -296,6 +354,10 @@ async function handleCommand(text) {
       return showContainers();
     case 'queue':
       return showQueue();
+    case 'buscar':
+    case 'search':
+      if (!argument) return notify('Uso: /buscar <título de película>');
+      return searchAndRequestMovies(argument);
     case 'briefing':
       return sendManualBriefing();
     case 'iptv':
@@ -309,8 +371,8 @@ async function handleCommand(text) {
     case 'selftest':
       return runSelfTest(false);
     case 'restart':
-      if (!argument) return notify('Uso: /restart <servicio>');
-      return restartByName(argument);
+      if (!firstArgument) return notify('Uso: /restart <servicio>');
+      return restartByName(firstArgument);
     default:
       return notify('Comando no reconocido. Usa /help para ver la consola de mando.');
   }
@@ -320,6 +382,11 @@ async function handleNatural(text) {
   const lower = text.toLowerCase();
   const restartMatch = text.match(/^(?:reinicia|reiniciar|restart)\s+(.+)$/i);
   if (restartMatch) return restartByName(restartMatch[1]);
+
+  const searchMatch = text.match(
+    /^(?:busca|buscar|solicita|solicitar)\s+(?:una\s+)?(?:pel[ií]cula\s+)?(.+)$/i,
+  );
+  if (searchMatch) return searchAndRequestMovies(searchMatch[1]);
 
   if (/\b(estado|status|resumen|panorama)\b/.test(lower) || /c[oó]mo est[aá]/.test(lower)) {
     return showMain();
@@ -462,6 +529,16 @@ async function onCallback(query) {
         } else {
           await ack(query, 'Acción desconocida');
         }
+        break;
+      }
+
+      case 'request': {
+        if (action !== 'movie') {
+          await ack(query, 'Solicitud no válida');
+          break;
+        }
+        await ack(query, 'Enviando solicitud…');
+        await requestMovie(Number(argument), pendingMovies.get(String(argument)));
         break;
       }
 

@@ -13,8 +13,31 @@ Infraestructura self-hosted de alta disponibilidad sobre Debian Linux 12 y Docke
 | **Kernel** | Linux 6.1.0-53-amd64 |
 | **Almacenamiento** | Disco SSD 228 GB (/dev/sda1) | ~78 GB libres (64% en uso) |
 | **Memoria RAM** | 8 GB DDR3L / DDR4 | Swap: 1 GB |
-| **Red Local** | `192.168.1.3` (Router ZTE + AP Huawei) |
+| **Red Local** | `192.168.1.3/24` fija (binding DHCP en ZTE F6201B; LAN4 a 1 Gbps) |
 | **Red Mesh VPN** | Tailscale `100.98.35.64` (alias `homelab`) |
+
+### Topología de red
+
+| Elemento | Detalle |
+| :--- | :--- |
+| **Gateway / Router** | ZTE F6201B · `192.168.1.1` · administración `http://192.168.1.1:65080` · DHCP activo (`.2`–`.254`) |
+| **Servidor** | `server` · `192.168.1.3/24` fija · MAC `48:4d:7e:f2:5a:a2` · puerto LAN4 a 1 Gbps |
+| **DHCP Binding** | Reserva MAC `48:4d:7e:f2:5a:a2` → `192.168.1.3` en el ZTE |
+| **DHCP DNS** | Primario `192.168.1.3` (Pi-hole) · secundario `1.1.1.1` · ISP DNS desactivado |
+| **Pi-hole** | DNS `192.168.1.3:53` TCP/UDP · web `http://192.168.1.3/admin/` · upstream `8.8.8.8`, `8.8.4.4` |
+| **Wi-Fi** | AP Huawei / SSID5 · el servidor va por cable, no por Wi-Fi |
+| **Dispositivo .254** | Nexxt Solutions con web GoAhead (no es el router ZTE) |
+
+La configuración del servidor está en `/etc/network/interfaces` como IP estática, sin el antiguo alias `192.168.1.2`. Pi-hole mantiene su propio DHCP desactivado: el ZTE sigue siendo el servidor DHCP y anuncia a Pi-hole como DNS primario.
+
+#### Verificación rápida
+
+```bash
+sudo ethtool enp0s31f6 | grep -E "Speed|Duplex"   # 1000Mb/s / Full
+ip -4 -br addr show enp0s31f6                     # solo 192.168.1.3/24
+dig +short @192.168.1.3 github.com
+dig +short @192.168.1.3 doubleclick.net           # 0.0.0.0
+```
 
 ---
 
@@ -22,7 +45,7 @@ Infraestructura self-hosted de alta disponibilidad sobre Debian Linux 12 y Docke
 
 ### 1. Nube Privada e Infraestructura Base
 - **Nextcloud** (`:8080`): Nube privada personal para sincronización de archivos, galería y respaldos móviles. Volumen de datos dedicado: `nextcloud_nextcloud_data` (~119 GB).
-- **Pi-hole** (`:53`, `:80`): Servidor DNS sinkhole para bloqueo centralizado de anuncios y telemetría en toda la red doméstica.
+- **Pi-hole** (`:53`, `:80`): Servidor DNS sinkhole para bloqueo centralizado de anuncios y telemetría en toda la red doméstica. El DHCP del ZTE anuncia `192.168.1.3` como DNS primario; Pi-hole reenvía a `8.8.8.8`/`8.8.4.4` y mantiene la lista StevenBlack.
 - **Portainer CE** (`:8000`, `:9000`, `:9443`): Panel web de administración y monitoreo de contenedores y volúmenes Docker.
 
 ### 2. Stack Multimedia Automatizado (Servarr + Media)

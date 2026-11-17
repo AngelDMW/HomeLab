@@ -23,6 +23,17 @@
   - Portainer (:8000, :9000, :9443 HTTPS)
   - Optiplex Brain / Telegram Bot (optiplex-chatops - network_mode host, IPv4-first)
 
+## Topología de Red (actual)
+- **Router:** ZTE F6201B en `192.168.1.1`; administración solo por `http://192.168.1.1:65080` (80/443 cerrados). DHCP activo con pool `.2`–`.254`.
+- **Servidor:** `server` con IP fija `192.168.1.3/24` en `enp0s31f6` (LAN4), gateway `.1`, enlace **1 Gbps**. Configuración en `/etc/network/interfaces`; **no volver a añadir el alias `192.168.1.2`**.
+- **Binding DHCP:** MAC `48:4d:7e:f2:5a:a2` → `192.168.1.3` en el ZTE.
+- **DHCP DNS:** primario `192.168.1.3` (Pi-hole), secundario `1.1.1.1`, ISP DNS desactivado.
+- **Pi-hole:** `192.168.1.3:53` TCP/UDP y web `:80`; upstream `8.8.8.8`/`8.8.4.4`; lista StevenBlack (~77k dominios); sin DHCP propio.
+- **Wi-Fi / otros:** AP Huawei (SSID5); `192.168.1.254` es un dispositivo Nexxt con web GoAhead, no el ZTE.
+- **Tailscale:** `100.98.35.64`; `/etc/resolv.conf` lo gestiona Tailscale (`100.100.100.100`), no Pi-hole.
+- **Diagnóstico:** `sudo ethtool enp0s31f6`, `ip -4 -br addr show enp0s31f6`, `dig @192.168.1.3`.
+- **Acceso remoto al router:** `ssh -L 65080:192.168.1.1:65080 homelab` y abrir `http://localhost:65080`.
+
 ## Optiplex Brain (ChatOps Autónomo)
 - Código: `/home/mrdavid/HomeLab/docker/telegram-bot` (`bot.js`, `config.js`, `lib/`, `modules/`).
 - Motores: telemetría cada 60 s, autorreparación de contenedores (2 intentos, espera 20 s), centinela de torrents estancados, guardián de almacenamiento (35 GB preventivo / 20 GB crítico), bus de eventos media/red, vigilante de accesos externos y briefing diario a las 08:00 (`America/Santo_Domingo`).
@@ -34,7 +45,7 @@
 ## Restricciones Estrictas de Seguridad
 1. **Protección de datos:** NUNCA borrar ni mover archivos dentro de /home/mrdavid/HomeLab/media (ni /media en contenedores), descargas activas de qBittorrent, ni volúmenes de Nextcloud sin confirmación explícita. El bot elimina torrents de qBittorrent sin borrar archivos.
 2. **Protección de configuraciones:** NUNCA eliminar carpetas config, bases de datos (.db, .sqlite), ni archivos config.xml.
-3. **Respaldo previo obligatorio:** Antes de modificar cualquier docker-compose.yml o estructura de carpetas, crear un respaldo con fecha en /home/mrdavid/backups-compose/.
+3. **Respaldo previo obligatorio:** Antes de modificar cualquier docker-compose.yml, estructura de carpetas o configuración de red (`/etc/network/interfaces`), crear un respaldo con fecha en /home/mrdavid/backups-compose/ y, si el cambio puede cortar SSH, programar un rollback automático.
 4. **Privacidad en GitHub:** NUNCA subir archivos .env, credenciales, tokens, certificados, bases de datos, caché ni logs al repositorio. Mantener .gitignore rigurosamente actualizado.
 5. **Acceso del bot:** El contenedor monta `/var/run/docker.sock` (equivalente a root en Docker) y `/:/hostfs:ro`. No exponerlo a Internet; solo responde al `CHAT_ID` autorizado y registra intentos externos.
 6. **APIs:** Jellyfin requiere `Authorization: MediaBrowser Token="..."`; qBittorrent 5.3 exige parámetros POST en el cuerpo (`hashes=all`), no en la query; Pi-hole v6 usa `POST /api/auth` + `X-FTL-SID`.

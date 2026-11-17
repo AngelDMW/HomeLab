@@ -31,6 +31,7 @@
 - **Pi-hole:** `192.168.1.3:53` TCP/UDP y web `:80`; upstream `8.8.8.8`/`8.8.4.4`; lista StevenBlack (~77k dominios); sin DHCP propio.
 - **Wi-Fi / otros:** AP Huawei (SSID5); `192.168.1.254` es un dispositivo Nexxt con web GoAhead, no el ZTE.
 - **Tailscale:** `100.98.35.64`; `/etc/resolv.conf` lo gestiona Tailscale (`100.100.100.100`), no Pi-hole.
+- **Acceso remoto:** `tailscale serve --bg http://127.0.0.1:8081` publica `https://server.tailbd32c4.ts.net` **solo para la tailnet**. **Funnel desactivado** (`sudo tailscale funnel reset`): no exponer puertos a internet público. Verificar con `sudo tailscale serve status` (debe indicar `tailnet only`) y `sudo tailscale funnel status`.
 - **Diagnóstico:** `sudo ethtool enp0s31f6`, `ip -4 -br addr show enp0s31f6`, `dig @192.168.1.3`.
 - **Acceso remoto al router:** `ssh -L 65080:192.168.1.1:65080 homelab` y abrir `http://localhost:65080`.
 

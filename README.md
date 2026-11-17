@@ -27,6 +27,7 @@ Infraestructura self-hosted de alta disponibilidad sobre Debian Linux 12 y Docke
 | **Pi-hole** | DNS `192.168.1.3:53` TCP/UDP · web `http://192.168.1.3/admin/` · upstream `8.8.8.8`, `8.8.4.4` |
 | **Wi-Fi** | AP Huawei / SSID5 · el servidor va por cable, no por Wi-Fi |
 | **Dispositivo .254** | Nexxt Solutions con web GoAhead (no es el router ZTE) |
+| **Acceso remoto** | Tailscale Serve `https://server.tailbd32c4.ts.net` → qBittorrent `127.0.0.1:8081`, **solo dentro de la tailnet**; Funnel desactivado (sin exposición a internet) |
 
 La configuración del servidor está en `/etc/network/interfaces` como IP estática, sin el antiguo alias `192.168.1.2`. Pi-hole mantiene su propio DHCP desactivado: el ZTE sigue siendo el servidor DHCP y anuncia a Pi-hole como DNS primario.
 

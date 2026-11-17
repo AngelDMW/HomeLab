@@ -1,6 +1,6 @@
 # HomeLab Server - Dell OptiPlex 5040
 
-Infraestructura self-hosted de alta disponibilidad sobre Debian Linux 12 y Docker Engine, diseñada para nube privada, bloqueo y filtrado DNS en red, streaming multimedia totalmente automatizado y ChatOps asistido por IA.
+Infraestructura self-hosted de alta disponibilidad sobre Debian Linux 12 y Docker Engine, diseñada para nube privada, bloqueo y filtrado DNS en red, streaming multimedia totalmente automatizado y un agente ChatOps autónomo (Optiplex Brain) con telemetría, autorreparación y consola interactiva por Telegram.
 
 ---
 
@@ -11,7 +11,7 @@ Infraestructura self-hosted de alta disponibilidad sobre Debian Linux 12 y Docke
 | **Equipo** | Dell OptiPlex 5040 SFF |
 | **Sistema Operativo** | Debian GNU/Linux 12 (Bookworm) x86_64 |
 | **Kernel** | Linux 6.1.0-53-amd64 |
-| **Almacenamiento** | Disco SSD 228 GB (/dev/sda1) | ~81 GB libres (63% en uso) |
+| **Almacenamiento** | Disco SSD 228 GB (/dev/sda1) | ~78 GB libres (64% en uso) |
 | **Memoria RAM** | 8 GB DDR3L / DDR4 | Swap: 1 GB |
 | **Red Local** | `192.168.1.3` (Router ZTE + AP Huawei) |
 | **Red Mesh VPN** | Tailscale `100.98.35.64` (alias `homelab`) |
@@ -35,7 +35,7 @@ Infraestructura self-hosted de alta disponibilidad sobre Debian Linux 12 y Docke
 - **qBittorrent** (`:8081` WebUI, `:6881` Peers): Cliente BitTorrent optimizado con interfaz web.
 
 ### 3. Asistente Autónomo (ChatOps)
-- **OptiPlex ChatOps** (`docker/telegram-bot`, `network_mode: host`): Bot de Telegram con integración a LLM (Llama 3 8B vía HuggingFace Inference) para ejecución supervisada de comandos remotos, diagnósticos y alertas operativas forzado en modo IPv4-first.
+- **Optiplex Brain** (`docker/telegram-bot`, `network_mode: host`): agente modular en Node.js 18 con polling IPv4-first. Integra telemetría cada 60 s, autorreparación de contenedores, guardián de almacenamiento, bus de eventos multimedia/red y consola interactiva por Telegram con botones inline y lenguaje natural. Solo responde al `CHAT_ID` autorizado.
 
 ---
 
@@ -49,9 +49,13 @@ Infraestructura self-hosted de alta disponibilidad sobre Debian Linux 12 y Docke
 │   │   └── .env.example
 │   ├── jellyfin/             # Servidor multimedia Jellyfin (host networking + DRI)
 │   │   └── docker-compose.yml
-│   ├── telegram-bot/         # Bot autónomo ChatOps para Telegram
+│   ├── telegram-bot/         # Optiplex Brain (agente autónomo ChatOps)
 │   │   ├── Dockerfile
-│   │   ├── bot.js
+│   │   ├── bot.js            # Entrada, comandos, callbacks y autocontrol
+│   │   ├── config.js         # Configuración y umbrales desde .env
+│   │   ├── lib/              # HTTP, formato, logger y estado persistente
+│   │   ├── modules/          # Telemetría, Docker, Servarr, qBittorrent, guardianes
+│   │   ├── data/             # Estado runtime (ignorado por git)
 │   │   ├── package.json
 │   │   ├── docker-compose.yml
 │   │   └── .env.example
@@ -74,6 +78,51 @@ Infraestructura self-hosted de alta disponibilidad sobre Debian Linux 12 y Docke
 
 ---
 
+## 🧠 Optiplex Brain — Agente Autónomo
+
+El contenedor `optiplex-chatops` dejó de ser un bot de comandos y ahora es un ecosistema modular de vigilancia y operación.
+
+### Motores internos
+
+| Motor | Función | Frecuencia |
+| :--- | :--- | :--- |
+| **Telemetry & Heartbeat** | CPU, temperatura (`Package id 0`), RAM, carga, uptime, red/Tailscale y disco | Bajo demanda y muestreo cada 60 s |
+| **Self-Healing** | Detecta contenedores `exited`/`unhealthy`, reinicia hasta 2 veces, espera 20 s, verifica estado y puerto, y alerta con los últimos 15 logs si persiste | 60 s |
+| **Torrent Sentinel** | Detecta `stalledDL` sin seeds durante más de 6 h y ofrece botones para buscar otro release, eliminar el torrent o ignorarlo | 10 min |
+| **Storage Guardian** | Alerta preventiva con < 35 GB libres, crítica con < 20 GB (pausa qBittorrent) y reanudación automática al recuperar 40 GB | 5 min |
+| **Live Event Bus** | Nuevas descargas, idioma detectado, fin de descarga, solicitudes Seerr, caídas/reconexiones de internet y Tailscale | 60 s |
+| **Security Watcher** | Conexiones establecidas a Nextcloud/Portainer desde IPs no privadas e inicios de sesión externos en `nextcloud.log` | 60 s |
+| **Morning Briefing** | Reporte ejecutivo diario con sistemas, disco, media importada en 24 h y Pi-hole | 08:00 `America/Santo_Domingo` |
+
+### Consola de Telegram
+
+- `/mission` · `/status` — panel principal con telemetría y botones inline.
+- `/containers` — estado de la flota y reinicio de cualquier servicio con un toque.
+- `/queue` — progreso de qBittorrent, pausar/reanudar y solicitudes de Seerr.
+- `/disk` — desglose de consumo (Nextcloud, media, Docker).
+- `/briefing`, `/iptv`, `/maint`, `/selftest`, `/help`.
+- Lenguaje natural: “estado del servidor”, “reinicia sonarr”, “pausa las descargas”, “¿cuánto espacio libre queda?”.
+- Los botones de limpieza solo purgan capas huérfanas y build cache. La eliminación de un torrent conserva siempre los archivos descargados.
+
+### Montajes y modelo de seguridad
+
+- `/var/run/docker.sock` (rw): necesario para inspeccionar y reiniciar contenedores. Equivale a acceso root sobre Docker; el contenedor no se expone a Internet y solo obedece al `CHAT_ID` del propietario.
+- `/:/hostfs:ro`: permite leer `/proc`, `/sys` y `/var/lib/docker` del host para telemetría y desglose de disco sin modificarlo.
+- `./data:/app/data`: estado persistente (incidentes, hashes notificados, offsets de logs).
+
+### Operación
+
+```bash
+cd /home/mrdavid/HomeLab/docker/telegram-bot
+docker compose up -d --build          # reconstruir y recrear
+docker compose logs -f --tail=100     # observar el arranque
+docker exec optiplex-chatops node --dns-result-order=ipv4first bot.js --selftest
+```
+
+El autodiagnóstico valida Telegram, Docker, host, Radarr, Sonarr, Seerr, Jellyfin, qBittorrent y Pi-hole, y envía el reporte real al Telegram del propietario. Antes de cada cambio se crea un respaldo en `/home/mrdavid/backups-compose/`.
+
+---
+
 ## ⚡ Hardlinks y Movimientos Atómicos
 
 Para evitar duplicar espacio en disco en la partición SSD:
@@ -87,4 +136,6 @@ Para evitar duplicar espacio en disco en la partición SSD:
 
 - **Gestión de Secretos:** Ningún archivo `.env`, token de bot, llave API ni contraseña se sube a GitHub. Cada carpeta contiene su respectivo `.env.example`.
 - **Bases de Datos y Caché:** Todas las carpetas `config`, cachés de transcodificación y bases de datos (`.db`, `.sqlite`) están excluidas en `.gitignore`.
+- **Acceso al bot:** Solo el `CHAT_ID` del propietario puede ejecutar comandos o pulsar botones; cualquier otro mensaje se ignora y se registra en los logs.
+- **Datos protegidos:** El bot nunca borra ni mueve archivos de `/media` ni volúmenes de Nextcloud. “Eliminar torrent” solo lo quita de qBittorrent y conserva los archivos.
 - **Respaldos Automatizados:** Todo cambio en composiciones o configuraciones crea un snapshot previo en `/home/mrdavid/backups-compose/YYYYMMDD_HHMMSS/`.

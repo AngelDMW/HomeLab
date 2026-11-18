@@ -15,10 +15,12 @@
 - **GPU Nodo 2:** VA-API operativo (Mesa 22.3.6): H.264 encode/decode, HEVC Main/Main10 decode, JPEG y MPEG-2/VC-1.
 - **WoL Nodo 2:** `Wake-on: g` persistente en `enp3s0` vía `wol-enp3s0.service`; MAC `e0:d5:5e:02:70:aa`.
 - **Servicios Activos:**
-  - Jellyfin (:8096 - network_mode host)
-  - Seerr / Jellyseerr (:5055)
-  - Radarr (:7878)
-  - Sonarr (:8989)
+  - Jellyfin (:8096 - network_mode host) — QSV activo en `/dev/dri/renderD128` (H.264 encode/decode, HEVC 8-bit decode, MPEG-2/VC-1), tema ElegantFin + acento Netflix, plugins Media Bar 3.0.2.0 / File Transformation 3.0.3.0 / Intro Skipper 12.0.6.0 / TMDb Box Sets 15.0.0.0, metadatos `es-419`/`DO`
+  - Threadfin (:34400 - `docker/threadfin`, TV en vivo para Android TV, separado de Jellyfin): imagen `fyb3roptik/threadfin:latest`, `restart: unless-stopped`, `512 MB`/`1.5 CPU`, volúmenes `./conf:/home/threadfin/conf` y `./temp:/tmp/threadfin`, modo `XEPG`, buffer `ffmpeg`. Playlists fuente: RD `https://iptv-org.github.io/iptv/countries/do.m3u`, ES `https://iptv-org.github.io/iptv/languages/spa.m3u`; EPG DobleM `https://raw.githubusercontent.com/davidmuma/EPG_dobleM/master/guiatv.xml.gz`. URLs: M3U `http://192.168.1.3:34400/m3u/threadfin.m3u`, XMLTV `http://192.168.1.3:34400/xmltv/threadfin.xml`. Curaduría activa (45 canales vivos, probe Nodo 1 2026-11-18): 20 RD (1–20) + 25 INT ES (21–45), grupos `República Dominicana`/`Internacionales`, `Digital 15` excluido (403). Activación por alternativa controlada (XEPG auto no persistió en 1.2.37): salidas canónicas `conf/data/curated.m3u|.xml|.xml.gz` aplicadas con `/home/mrdavid/HomeLab/docker/threadfin/apply_curated.sh`. Tras reinicio/ciclo XEPG re-ejecutar el script para restaurar; M3U usa URLs directas (buffer ffmpeg aplica en proxy/stream). Backup conf: `/home/mrdavid/backups-compose/20261118_121126_threadfin_conf/conf`.
+  - Seerr / Jellyseerr (:5055) — perfil predeterminado `1080p - Español Latino / Dual`, `syncEnabled: true`
+  - Radarr (:7878) — perfiles IDs 7/8/9 y Custom Formats de idioma
+  - Sonarr (:8989) — mismos perfiles y Custom Formats que Radarr
+  - Bazarr (:6767) — subtítulos automáticos perfil `ea` + `es` + `ea:forced`, sync Radarr/Sonarr
   - Prowlarr (:9696)
   - FlareSolverr (:8191)
   - qBittorrent (:8081 WebUI, :6881 torrents) - API v2.11 / qBittorrent 5.3
@@ -29,13 +31,13 @@
   - Nodo 2: Docker listo, sin servicios permanentes (RX 550 VA-API + `/mnt/storage`)
 
 ## Topología de Red (actual)
-- **Router:** ZTE F6201B en `192.168.1.1`; administración solo por `http://192.168.1.1:65080` (80/443 cerrados). DHCP activo con pool `.5`–`.254`.
+- **Router:** ZTE F6201B en `192.168.1.1`; administración solo por `http://192.168.1.1:65080` (80/443 cerrados). DHCP activo con pool `.5`–`.249` (`.254` excluida para el AP). Radio 2.4 GHz apagado; 5 GHz con canal primario 36, 160 MHz, SSID `.I.`, WPA2-AES, WPS off. El firmware no expone el ancho de banda: permanece en 160 MHz y rechaza `BandWidth=80MHz`; 80 MHz no es configurable. Con 160 MHz el bloque 36–64 incluye subcanales DFS 52–64, así que la radio sigue expuesta a radar aunque el primario no sea DFS.
 - **Servidor principal:** `server` con IP fija `192.168.1.3/24` en `enp0s31f6` (LAN4), gateway `.1`, enlace **1 Gbps**. Configuración en `/etc/network/interfaces`; **no volver a añadir el alias `192.168.1.2`**.
 - **Nodo 2:** `homeLab-node2` con IP fija `192.168.1.4/24` en `enp3s0`, MAC `e0:d5:5e:02:70:aa`, gateway `.1`. Tailscale `100.67.30.11`. Alias SSH `homelab-node2`.
-- **Binding DHCP:** entradas `.3` y `.4` en el ZTE, pero el firmware **no las aplica** (verificado). La IP fija real está en `/etc/network/interfaces` de cada nodo; el pool empieza en `.5` para no colisionar.
-- **DHCP DNS:** primario `192.168.1.3` (Pi-hole), secundario `1.1.1.1`, ISP DNS desactivado.
+- **Binding DHCP:** entradas `.3` y `.4` en el ZTE, pero el firmware **no las aplica** (verificado). La IP fija real está en `/etc/network/interfaces` de cada nodo; el pool empieza en `.5` y termina en `.249` para no colisionar con el AP.
+- **DHCP DNS:** primario y secundario `192.168.1.3` (Pi-hole), ISP DNS desactivado. **IPv6:** el RA del ZTE anuncia `fe80::1` como DNS; no se puede cambiar desde la UI y los clientes sin Tailscale pueden fugar consultas por IPv6.
 - **Pi-hole:** `192.168.1.3:53` TCP/UDP y web `:80`; upstream `8.8.8.8`/`8.8.4.4`; lista StevenBlack (~77k dominios); sin DHCP propio.
-- **Wi-Fi / otros:** AP Huawei (SSID5); `192.168.1.254` es un dispositivo Nexxt con web GoAhead, no el ZTE.
+- **Wi-Fi / otros:** AP Nexxt Amp300 `ARN02304U8` en `192.168.1.254` (no es el ZTE): bridge, solo 2.4 GHz, canal 6, 20 MHz, WPA2-AES, WPS y UPnP off. Troncal Fast Ethernet 100 Mbps; LAN de los nodos a 1 Gbps. Wi-Fi medido ~51–65 Mbps (5 muestras; mejor caso 64.5). Administración y PSK rotadas el 2026-11-18; credenciales en `~/HomeLab-Agent/.env.ap` (modo 600, sin versionar; nunca imprimir ni copiar al repo). El SSID `.I.` usa la misma PSK en el AP 2.4 GHz y en el ZTE 5 GHz; los clientes con la clave anterior deben reconectarse.
 - **Tailscale:** Nodo 1 `100.98.35.64`, Nodo 2 `100.67.30.11`; `/etc/resolv.conf` lo gestiona Tailscale (`100.100.100.100`), no Pi-hole.
 - **Acceso remoto:** `tailscale serve --bg http://127.0.0.1:8081` publica `https://server.tailbd32c4.ts.net` **solo para la tailnet**. **Funnel desactivado** (`sudo tailscale funnel reset`): no exponer puertos a internet público. Verificar con `sudo tailscale serve status` (debe indicar `tailnet only`) y `sudo tailscale funnel status`.
 - **Wake-on-LAN:** Nodo 2 `enp3s0` con `Wake-on: g` persistente; el bot envía magic packet a `.255`/broadcast en puertos 9 y 7.
@@ -50,6 +52,20 @@
 - Estado persistente: `/home/mrdavid/HomeLab/docker/telegram-bot/data/state.json` (ignorado por git).
 - Prueba integral: `docker exec optiplex-chatops node --dns-result-order=ipv4first bot.js --selftest` (envía reporte real a Telegram; 10 integraciones, incluido Nodo 2).
 - Reconstruir: `cd /home/mrdavid/HomeLab/docker/telegram-bot && docker compose up -d --build`.
+
+## Stack Multimedia y Perfiles de Idioma (2026-11-18)
+- **Perfiles exactos en Radarr y Sonarr (IDs 7/8/9):**
+  - `1080p - Español Latino / Dual` — predeterminado de Seerr; prioriza `LATINO` +1000, `DUAL` +700, `MULTI` +500, Castellano +300, subs ES +100 y penaliza `SOLO INGLÉS` con -2000.
+  - `1080p - Original (Inglés) + Subs ES` — idioma de perfil `Original`, prioriza inglés y subtítulos ES, cutoff `Remux-1080p`.
+  - `4K / 1080p - Dual / Latino (Máxima Calidad)` — incluye 2160p, cutoff `Remux-2160p`.
+- **Custom Formats compartidos:** `LATINO`, `DUAL`, `MULTI`, `ESPAÑOL (Castellano)`, `SUBTÍTULOS ESPAÑOL`, `AUDIO INGLÉS`, `SOLO INGLÉS (sin español)`, `ES: Audio Español (detectado)`, `EN: Audio Inglés (detectado)`. Radarr exige que **todos** los CF existentes estén presentes en cada perfil (aunque sea con score 0).
+- **Seerr/Jellyseerr:** `syncEnabled: true` en Radarr y Sonarr; `activeProfileId` 7 y nombre `1080p - Español Latino / Dual`. El modal de solicitud muestra los 3 perfiles para elegir idioma por pedido.
+- **Cómo pedir:** en `http://192.168.1.3:5055`, buscar título → **Solicitar** → elegir perfil (`Español Latino / Dual`, `Original + Subs ES` o `4K/1080p Máxima Calidad`) → confirmar. Radarr/Sonarr descargan y Bazarr añade subtítulos.
+- **Bazarr (`:6767`):** perfil `Español Latino + Español + Forzados` con items `ea` normal, `es` normal y `ea` forzado. Los perfiles viven en SQLite; `serie_default_profile`/`movie_default_profile` deben ser el **ID entero** (1), no el nombre, o el sync falla con `FOREIGN KEY constraint failed`. Proveedores sin auth activos: argenteam, subscenter, subtitulamostv, subs4free, subs4series, podnapisi, subf2m, yifysubtitles, tvsubtitles, addic7ed, subtitlecat, supersubtitles. `subf2m`/`addic7ed` pueden auto-throttle si falta User-Agent o credenciales. Tras cambios de perfil, ejecutar `movies_full_scan_subtitles`/`series_full_scan_subtitles` para recalcular `missing_subtitles`; luego `wanted_search_missing_subtitles_*`.
+- **Jellyfin:** QSV `HardwareAccelerationType=qsv`, dispositivo `/dev/dri/renderD128`, decodificación `h264`, `hevc` 8-bit, `mpeg2video`, `vc1`; H.264 encode por hardware. **HEVC encode y HEVC 10-bit/VP9 decode fallan en la iGPU Skylake** y deben quedar desactivados. Plugins: Media Bar 3.0.2.0 (requiere File Transformation 3.0.3.0), Intro Skipper 12.0.6.0, TMDb Box Sets 15.0.0.0. Repos: `https://www.iamparadox.dev/jellyfin/plugins/manifest.json` y `https://intro-skipper.org/manifest.json`.
+- **Tema Jellyfin:** CSS personalizado vía `POST /System/Configuration/Branding` con `CustomCss`; importa ElegantFin upstream, el add-on de Media Bar y el companion `mihaif7/elegantfin-jf12` para el layout Modern. Verificar con `GET /Branding/Css`.
+- **Metadatos:** bibliotecas `Movies` (`/media/peliculas`) y `Series` (`/media/series`) con `PreferredMetadataLanguage=es-419` y `MetadataCountryCode=DO`. Refrescos completos vía `POST /Items/{id}/Refresh?metadataRefreshMode=FullRefresh&imageRefreshMode=FullRefresh`.
+- **Backup de referencia:** `/home/mrdavid/backups-compose/20261118_170101_multimedia_pre_mejoras/`.
 
 ## Restricciones Estrictas de Seguridad
 1. **Protección de datos:** NUNCA borrar ni mover archivos dentro de /home/mrdavid/HomeLab/media (ni /media en contenedores), descargas activas de qBittorrent, ni volúmenes de Nextcloud sin confirmación explícita. El bot elimina torrents de qBittorrent sin borrar archivos.

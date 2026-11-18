@@ -42,18 +42,22 @@ Infraestructura self-hosted de alta disponibilidad sobre Debian Linux 12 y Docke
 
 | Elemento | Detalle |
 | :--- | :--- |
-| **Gateway / Router** | ZTE F6201B · `192.168.1.1` · administración `http://192.168.1.1:65080` · DHCP activo (`.5`–`.254`) |
+| **Gateway / Router** | ZTE F6201B · `192.168.1.1` · administración `http://192.168.1.1:65080` · DHCP activo (`.5`–`.249`; `.254` excluida para el AP) |
 | **Servidor principal** | `server` · `192.168.1.3/24` fija · MAC `48:4d:7e:f2:5a:a2` · puerto LAN4 a 1 Gbps |
 | **Nodo 2** | `homeLab-node2` · `192.168.1.4/24` fija · MAC `e0:d5:5e:02:70:aa` · `enp3s0` |
 | **DHCP Binding** | Reservas `.3` y `.4` en el ZTE. **El firmware F6201B V9.3.10P4N10B no aplicó las reservas** (verificado); ambos nodos usan IP estática en `/etc/network/interfaces` y el pool dinámico empieza en `.5` para evitar colisiones. |
-| **DHCP DNS** | Primario `192.168.1.3` (Pi-hole) · secundario `1.1.1.1` · ISP DNS desactivado |
+| **DHCP DNS** | Primario y secundario `192.168.1.3` (Pi-hole) · ISP DNS desactivado · **IPv6: el RA del ZTE anuncia `fe80::1` como DNS y no es configurable desde la UI; los clientes sin Tailscale pueden fugar consultas por IPv6** |
 | **Pi-hole** | DNS `192.168.1.3:53` TCP/UDP · web `http://192.168.1.3/admin/` · upstream `8.8.8.8`, `8.8.4.4` |
-| **Wi-Fi** | AP Huawei / SSID5 · los servidores van por cable, no por Wi-Fi |
-| **Dispositivo .254** | Nexxt Solutions con web GoAhead (no es el router ZTE) |
+| **Wi-Fi** | AP Nexxt Amp300 `ARN02304U8` · `192.168.1.254` · bridge, solo 2.4 GHz, canal **6**, **20 MHz**, **WPA2-AES**, WPS y UPnP off · puertos Fast Ethernet (troncal 100 Mbps) · admin y PSK rotados (credenciales en `~/HomeLab-Agent/.env.ap` del equipo de administración, modo 600, fuera del repo) |
+| **Wi-Fi ZTE** | Radio 2.4 GHz **apagado**; 5 GHz activo con canal primario **36**, **160 MHz** (el bloque 36–64 incluye subcanales DFS 52–64), SSID `.I.`, WPA2-AES, PSK compartida con el AP |
+| **Rendimiento** | LAN cableada Nodo2→Nodo1 **~926 Mbps**; Wi-Fi Mac→Nodo1 **~51–65 Mbps** (PHY 144 Mbps); WAN **84 Mbps** con bufferbloat bajo |
+| **Nota .254** | El AP Nexxt no es el router ZTE. Su administración y su PSK se rotaron el **2026-11-18**; las credenciales viven en `~/HomeLab-Agent/.env.ap` del equipo de administración (modo 600, sin versionar). Solo WPA2, sin WPA3. |
 | **Wake-on-LAN** | Nodo 2: magic packet al MAC `e0:d5:5e:02:70:aa`; `Wake-on: g` persistente en `enp3s0` |
 | **Acceso remoto** | Tailscale Serve `https://server.tailbd32c4.ts.net` → qBittorrent `127.0.0.1:8081`, **solo dentro de la tailnet**; Funnel desactivado (sin exposición a internet) |
 
-La configuración de red de ambos nodos está en `/etc/network/interfaces` como IP estática. Pi-hole mantiene su propio DHCP desactivado: el ZTE sigue siendo el servidor DHCP y anuncia a Pi-hole como DNS primario.
+La configuración de red de ambos nodos está en `/etc/network/interfaces` como IP estática. Pi-hole mantiene su propio DHCP desactivado: el ZTE sigue siendo el servidor DHCP y anuncia a Pi-hole como DNS primario y secundario. El AP Nexxt está en modo bridge (sin DHCP ni NAT propios); su troncal es Fast Ethernet, por lo que el Wi-Fi nunca superará ~100 Mbps aunque el enlace del AP al ZTE negocie 100/Full.
+
+El SSID `.I.` se comparte entre el 5 GHz del ZTE y el 2.4 GHz del AP con la **misma PSK**, de modo que el roaming entre radios no falla por credenciales. Tras la rotación del 2026-11-18, los clientes que conserven la clave anterior deben reconectarse una vez. El 5 GHz quedó con canal primario 36, pero el firmware lo mantiene en 160 MHz: la UI no expone el selector de ancho y el POST con `80MHz` es rechazado, así que **80 MHz no es configurable** en este ZTE. Con 160 MHz el bloque 36–64 incluye los subcanales DFS 52–64, por lo que la radio sigue expuesta a eventos radar aunque el canal primario no sea DFS. La Mac quedó en el AP 2.4 GHz (canal 6, 20 MHz, PHY 144 Mbps) y el cliente 5 GHz `.6` volvió a asociarse en 80 MHz/11ax.
 
 #### Verificación rápida
 
@@ -79,13 +83,53 @@ ssh homelab-node2 'vainfo | grep -E "Driver version|H264High|HEVCMain"'
 - **Portainer CE** (`:8000`, `:9000`, `:9443`): Panel web de administración y monitoreo de contenedores y volúmenes Docker.
 
 ### 2. Stack Multimedia Automatizado (Servarr + Media)
-- **Jellyfin** (`:8096`, `network_mode: host`): Servidor multimedia con transcodificación por hardware (`/dev/dri`) y gestión de canales IPTV en vivo (listas M3U + XMLTV).
+- **Jellyfin** (`:8096`, `network_mode: host`): Servidor multimedia con **Intel QuickSync (QSV)** activo sobre `/dev/dri/renderD128` (H.264 encode/decode, HEVC 8-bit decode, MPEG-2/VC-1 decode), tema ElegantFin + acentos Netflix, Media Bar, Intro Skipper y TMDb Box Sets. Metadatos en `es-419`/`DO`.
+- **Threadfin** (`:34400`, `docker/threadfin`): proxy/gestor de TV en vivo para Android TV, **separado de Jellyfin**. Imagen `fyb3roptik/threadfin:latest`, `restart: unless-stopped`, límite `512 MB` / `1.5 CPU`, TZ `America/Santo_Domingo`. Volúmenes persistentes: `./conf` → `/home/threadfin/conf` y `./temp` → `/tmp/threadfin`. EPG en modo `XEPG`, buffer `ffmpeg` habilitado (global y por playlist).
+  - **Playlists fuente:** República Dominicana `https://iptv-org.github.io/iptv/countries/do.m3u` (262 streams) y Español `https://iptv-org.github.io/iptv/languages/spa.m3u` (2441 streams).
+  - **EPG XMLTV:** `https://raw.githubusercontent.com/davidmuma/EPG_dobleM/master/guiatv.xml.gz` (DobleM, español), asociada vía `url-tvg`.
+  - **URLs para Android TV:** M3U `http://192.168.1.3:34400/m3u/threadfin.m3u` · XMLTV `http://192.168.1.3:34400/xmltv/threadfin.xml`.
+  - **Curaduría activa (45 canales, verificados vivos desde Nodo 1 con `curl` timeout 5s el 2026-11-18):** 20 `República Dominicana` (1–20) + 25 `Internacionales` en español (21–45), nombres limpios, numeración secuencial desde 1. `Digital 15` excluido (403 en probe).
+  - **Activación (alternativa controlada):** la activación automática XEPG no persistió en Threadfin 1.2.37 (cleanup regeneraba `xepg.json` vacío/0 canales). Se sirven salidas curadas canónicas (`conf/data/curated.m3u|.xml|.xml.gz`) aplicadas a `threadfin.m3u|.xml|.xml.gz` con `/home/mrdavid/HomeLab/docker/threadfin/apply_curated.sh`.
+  - **Implicación de actualización:** Threadfin regenera las salidas en cada arranque/ciclo XEPG. Tras reiniciar el contenedor o una actualización XEPG, ejecutar `ssh homelab 'bash /home/mrdavid/HomeLab/docker/threadfin/apply_curated.sh'` para restaurar la curaduría. La M3U curada usa URLs directas de origen (los endpoints M3U/XMLTV quedan operativos; buffer ffmpeg de Threadfin aplica en modo proxy/stream). Fuentes/EPG originales permanecen en `conf/data/` para re-curar. Backup conf previo: `/home/mrdavid/backups-compose/20261118_121126_threadfin_conf/conf`.
 - **Seerr / Jellyseerr** (`:5055`): Portal de descubrimiento y solicitudes de contenido para usuarios.
 - **Radarr** (`:7878`): Automatización, búsqueda y gestión de películas.
 - **Sonarr** (`:8989`): Automatización, búsqueda y gestión de series de TV.
+- **Bazarr** (`:6767`, `lscr.io/linuxserver/bazarr:latest`): Subtítulos automáticos multi-idioma. Perfil activo **“Español Latino + Español + Forzados”** (`ea`, `es`, `ea:forced`). Sincronizado con Radarr y Sonarr; proveedores sin autenticación: `argenteam`, `subscenter`, `subtitulamostv`, `subs4free`, `subs4series`, `podnapisi`, `subf2m`, `yifysubtitles`, `tvsubtitles`, `addic7ed`, `subtitlecat`, `supersubtitles`. Los subtítulos se guardan junto al video (`<archivo>.<idioma>.srt`).
 - **Prowlarr** (`:9696`): Administrador e integrador de indexadores de torrents.
 - **FlareSolverr** (`:8191`): Servidor proxy para elusión de protecciones Cloudflare anti-bot en indexadores.
 - **qBittorrent** (`:8081` WebUI, `:6881` Peers): Cliente BitTorrent optimizado con interfaz web.
+
+#### Perfiles de idioma y calidad (2026-11-18)
+
+Radarr y Sonarr comparten tres perfiles con nombres exactos (IDs `7`, `8`, `9`), cada uno con Custom Formats por título de release y por idioma detectado:
+
+| Perfil | Uso | Prioridad de puntuación |
+| :--- | :--- | :--- |
+| `1080p - Español Latino / Dual` | **Predeterminado en Seerr**. Busca 720p/1080p con audio latino, dual o multi. | Latino `+1000`, Dual `+700`, Multi `+500`, Castellano `+300`, subs ES `+100`; solo inglés `-2000`. `minFormatScore -1000`, cutoff `Bluray-1080p` con 500 puntos. |
+| `1080p - Original (Inglés) + Subs ES` | Para quien prefiere audio original y subtítulos en español. | Inglés `+200/+300`, subs ES `+300`, latino `-100`. Idioma de perfil `Original`, cutoff `Remux-1080p`. |
+| `4K / 1080p - Dual / Latino (Máxima Calidad)` | Máxima calidad, incluye 2160p Remux/Bluray/WEB. | Misma prioridad latino/dual; cutoff `Remux-2160p`. |
+
+Los Custom Formats creados en ambos Servarr son: `LATINO`, `DUAL`, `MULTI`, `ESPAÑOL (Castellano)`, `SUBTÍTULOS ESPAÑOL`, `AUDIO INGLÉS`, `SOLO INGLÉS (sin español)`, `ES: Audio Español (detectado)` y `EN: Audio Inglés (detectado)`.
+
+#### Cómo solicitar una película o serie y elegir idioma (Seerr)
+
+1. Entrar a **http://192.168.1.3:5055** e iniciar sesión.
+2. Buscar el título y abrir su ficha; pulsar **Solicitar**.
+3. En el desplegable **Perfil de calidad** elegir:
+   - **`1080p - Español Latino / Dual`** → audio latino/dual (recomendado para ver doblado).
+   - **`1080p - Original (Inglés) + Subs ES`** → audio original + subtítulos en español (Bazarr los descarga).
+   - **`4K / 1080p - Dual / Latino (Máxima Calidad)`** → mejor calidad disponible, incluye 4K.
+4. Confirmar la solicitud. Radarr/Sonarr buscan, qBittorrent descarga y el archivo aparece por hardlink en Jellyfin.
+5. Bazarr descarga automáticamente subtítulos latino/español y forzados; Jellyfin los muestra en el selector de subtítulos durante la reproducción.
+
+> El perfil predeterminado de Seerr es `1080p - Español Latino / Dual`; si el usuario no cambia nada, la solicitud sale con esa intención. La disponibilidad real de audio latino depende de los indexadores (Knaben, The Pirate Bay, LimeTorrents, YTS).
+
+#### Jellyfin — experiencia tipo streaming
+
+- **Tema:** ElegantFin + companion para el layout Modern de Jellyfin 12 + soporte de Media Bar, aplicado como CSS personalizado desde el panel. Acentos rojos tipo Netflix, tarjetas redondeadas, header translúcido y hero cinematográfico.
+- **Plugins activos:** Media Bar `3.0.2.0` (hero con backdrop, logo, sinopsis, play y tráilers), File Transformation `3.0.3.0` (requerido por Media Bar), Intro Skipper `12.0.6.0` (detecta intro/créditos y usa Media Segments nativos), TMDb Box Sets `15.0.0.0` (colecciones automáticas).
+- **Metadatos:** bibliotecas `Movies` y `Series` en `es-419` con país `DO`; títulos, sinopsis, géneros, backdrops y logos se piden a TMDb/OMDb en español.
+- **QuickSync:** `HardwareAccelerationType=qsv`, dispositivo `/dev/dri/renderD128`, decodificación `h264`, `hevc` (8-bit), `mpeg2video`, `vc1`; encoding H.264 por hardware. HEVC encode y decodificación 10-bit/VP9 **no** están soportados por la iGPU Skylake y quedan desactivados para evitar fallbacks silenciosos.
 
 ### 3. Asistente Autónomo (ChatOps)
 - **Optiplex Brain 2.1.0** (`docker/telegram-bot`, `network_mode: host`): agente modular en Node.js 18 con polling IPv4-first. Integra telemetría cada 60 s, autorreparación de contenedores, guardián de almacenamiento, bus de eventos multimedia/red, control multi-nodo del Nodo 2 (estado, Wake-on-LAN y apagado) y consola interactiva por Telegram con botones inline y lenguaje natural. Solo responde al `CHAT_ID` autorizado.
@@ -102,11 +146,17 @@ ssh homelab-node2 'vainfo | grep -E "Driver version|H264High|HEVCMain"'
 ```text
 /home/mrdavid/HomeLab/
 ├── docker/
-│   ├── media-stack/          # Stack Radarr, Sonarr, Prowlarr, qBittorrent, Jellyseerr, Flaresolverr
+│   ├── media-stack/          # Stack Radarr, Sonarr, Bazarr, Prowlarr, qBittorrent, Jellyseerr, Flaresolverr
 │   │   ├── docker-compose.yml
+│   │   ├── bazarr/           # Config/DB de Bazarr (perfil es-419 + es + forzados)
 │   │   └── .env.example
-│   ├── jellyfin/             # Servidor multimedia Jellyfin (host networking + DRI)
-│   │   └── docker-compose.yml
+│   ├── jellyfin/             # Servidor multimedia Jellyfin (host networking + QSV)
+│   │   ├── docker-compose.yml
+│   │   └── config/           # Configuración, plugins y DB de Jellyfin (ignorado por git)
+│   ├── threadfin/            # TV en vivo (Threadfin) separada de Jellyfin
+│   │   ├── docker-compose.yml
+│   │   ├── conf/             # Configuración y base Threadfin (persistente)
+│   │   └── temp/             # Caché/buffer temporal
 │   ├── telegram-bot/         # Optiplex Brain (agente autónomo ChatOps)
 │   │   ├── Dockerfile
 │   │   ├── bot.js            # Entrada, comandos, callbacks y autocontrol

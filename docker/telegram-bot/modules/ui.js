@@ -2,6 +2,13 @@
 
 const config = require('../config');
 const telemetry = require('./telemetry');
+const {
+  formatBytes,
+  formatDuration,
+  progressBar,
+  escapeHtml: esc,
+  nowInTimezone,
+} = require('../lib/format');
 
 function mainKeyboard() {
   return [
@@ -19,7 +26,7 @@ function mainKeyboard() {
     ],
     [
       { text: '☀️ Briefing', callback_data: 'view:briefing' },
-      { text: '🔄 Actualizar', callback_data: 'view:refresh' },
+      { text: '🖥️ Nodo 2', callback_data: 'view:node2' },
     ],
   ];
 }
@@ -139,6 +146,113 @@ function storageAlertKeyboard() {
   ];
 }
 
+function node2View(status) {
+  const name = status?.name || config.node2.name;
+  const lines = [
+    `🖥️ <b>${esc(String(name).toUpperCase())} — HOMELAB-NODE2</b>`,
+    '━━━━━━━━━━━━━━━━━━━━',
+  ];
+
+  if (!status?.online) {
+    lines.push(
+      '🔴 <b>Apagado o inaccesible</b>',
+      `• Host: <code>${esc(status?.host || config.node2.host)}</code>`,
+    );
+    if (config.node2.tailscaleHost) {
+      lines.push(`• Tailscale: <code>${esc(config.node2.tailscaleHost)}</code>`);
+    }
+    lines.push(`• MAC: <code>${esc(config.node2.mac)}</code>`);
+    if (status?.error) {
+      lines.push(`• Diagnóstico: <i>${esc(status.error)}</i>`);
+    }
+    lines.push('', '<i>Envía un magic packet para encenderlo por Wake-on-LAN.</i>');
+    return {
+      text: lines.join('\n'),
+      keyboard: [
+        [{ text: '⚡ Encender (WoL)', callback_data: 'node2:wake' }],
+        [
+          { text: '🔄 Reintentar', callback_data: 'view:node2' },
+          { text: '⬅️ Menú', callback_data: 'view:back' },
+        ],
+      ],
+    };
+  }
+
+  if (status.ssh === false) {
+    lines.push(
+      '🟠 <b>En línea, sin acceso SSH</b>',
+      `• Host: <code>${esc(status.host)}</code>`,
+      `• Error: <i>${esc(status.error || 'clave no autorizada')}</i>`,
+      '',
+      '<i>Revisa la clave del bot en el Nodo 2.</i>',
+    );
+    return {
+      text: lines.join('\n'),
+      keyboard: [
+        [
+          { text: '🔄 Reintentar', callback_data: 'view:node2' },
+          { text: '⬅️ Menú', callback_data: 'view:back' },
+        ],
+      ],
+    };
+  }
+
+  lines.push(
+    `🟢 <b>En línea</b> · <i>${esc(status.hostname || 'homelab-node2')}</i>`,
+    `• IP: <code>${esc(status.host)}</code>${(status.ips || []).filter((ip) => ip !== status.host).length ? ` · ${esc((status.ips || []).filter((ip) => ip !== status.host).join(' · '))}` : ''}`,
+    `• ${esc(status.os || 'Debian GNU/Linux')} · kernel ${esc(status.kernel || 'n/d')}`,
+    `• Uptime: <b>${formatDuration(status.uptime)}</b> · Carga: <b>${(status.load?.[0] || 0).toFixed(2)}</b> (${status.cpus || '?'} cores)`,
+    `• CPU: <b>${status.cpuPercent == null ? '—' : `${status.cpuPercent.toFixed(1)}%`}</b>${status.cpuPercent == null ? '' : ` ${progressBar(status.cpuPercent)}`}`,
+  );
+
+  if (status.memory) {
+    lines.push(
+      `• RAM: <b>${formatBytes(status.memory.used)}</b> / ${formatBytes(status.memory.total)} (${status.memory.percent.toFixed(0)}%) ${progressBar(status.memory.percent)}`,
+    );
+  }
+
+  if (status.diskRoot) {
+    lines.push(
+      `• Disco /: <b>${formatBytes(status.diskRoot.free)} libres</b> de ${formatBytes(status.diskRoot.total)} (${status.diskRoot.percent.toFixed(0)}% usado)`,
+    );
+  }
+
+  if (status.diskStorage) {
+    lines.push(
+      `• Disco ${esc(config.node2.storagePath)}: <b>${formatBytes(status.diskStorage.free)} libres</b> de ${formatBytes(status.diskStorage.total)} (${status.diskStorage.percent.toFixed(0)}% usado)`,
+    );
+  } else {
+    lines.push(`• Disco ${esc(config.node2.storagePath)}: <i>no montado</i>`);
+  }
+
+  if (status.temperature != null) {
+    lines.push(`• Temp: <b>${status.temperature.toFixed(1)} °C</b>`);
+  }
+
+  lines.push(
+    `• Docker: <b>${status.docker?.running ?? '—'}/${status.docker?.total ?? '—'}</b> activos`,
+  );
+  if (status.gpu) {
+    lines.push(`• GPU: ${esc(status.gpu)}`);
+  }
+
+  lines.push(
+    '',
+    `<i>${esc(config.node2.mac)} · ${esc(nowInTimezone(config.timezone))}</i>`,
+  );
+
+  return {
+    text: lines.join('\n'),
+    keyboard: [
+      [
+        { text: '🔄 Actualizar', callback_data: 'view:node2' },
+        { text: '⏻ Apagar', callback_data: 'node2:shutdown' },
+      ],
+      [{ text: '⬅️ Menú', callback_data: 'view:back' }],
+    ],
+  };
+}
+
 function helpText() {
   return [
     '🕹️ <b>CONSOLA DE MANDO — OPTIPLEX BRAIN</b>',
@@ -152,6 +266,7 @@ function helpText() {
     '/briefing — reporte ejecutivo inmediato',
     '/iptv — salud de canales en Jellyfin',
     '/maint — mantenimiento seguro de Docker',
+    '/node2 — estado, encendido (WoL) y apagado del Nodo 2',
     '/selftest — diagnóstico de todas las integraciones',
     '',
     '<b>Lenguaje natural:</b>',
@@ -173,6 +288,7 @@ module.exports = {
   briefingView,
   storageView,
   storageAlertKeyboard,
+  node2View,
   backKeyboard,
   helpText,
 };

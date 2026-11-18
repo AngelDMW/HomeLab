@@ -20,6 +20,7 @@ const { EventBus } = require('./modules/eventBus');
 const { SecurityWatcher } = require('./modules/securityWatcher');
 const Scheduler = require('./modules/scheduler');
 const ai = require('./modules/ai');
+const node2 = require('./modules/node2');
 
 const SELFTEST = process.argv.includes('--selftest');
 
@@ -239,6 +240,53 @@ async function sendManualBriefing() {
   await notify(text, { reply_markup: { inline_keyboard: ui.backKeyboard() } });
 }
 
+async function showNode2(messageId = null) {
+  const status = await node2.status();
+  await renderPanel(messageId, ui.node2View(status));
+}
+
+async function wakeNode2() {
+  const targets = await node2.wake();
+  logger.info(`[node2] WoL solicitado (${targets.length} paquetes)`);
+  return notify(
+    `⚡ <b>Magic packet enviado</b> a ${esc(config.node2.name)} (<code>${esc(config.node2.mac)}</code>).\nEl equipo suele tardar 30-60 s en arrancar.`,
+    {
+      reply_markup: {
+        inline_keyboard: [[{ text: '🔄 Ver estado', callback_data: 'view:node2' }]],
+      },
+    },
+  );
+}
+
+async function confirmNode2Shutdown() {
+  return notify(
+    `⚠️ ¿Apagar <b>${esc(config.node2.name)}</b> (<code>${esc(config.node2.host)}</code>)?\nSe cerrarán Docker y todos sus servicios.`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '✅ Sí, apagar', callback_data: 'node2:shutdown_yes' },
+            { text: '❌ Cancelar', callback_data: 'node2:shutdown_cancel' },
+          ],
+        ],
+      },
+    },
+  );
+}
+
+async function performNode2Shutdown(messageId = null) {
+  await notify(`⏻ Apagando <b>${esc(config.node2.name)}</b>…`);
+  const result = await node2.shutdown();
+  if (!result.ok) {
+    return notify(
+      `❌ No pude apagar el Nodo 2: ${esc(result.error || 'sin acceso SSH')}`,
+    );
+  }
+  await sleep(9000);
+  await notify(`✅ Orden de apagado enviada a <b>${esc(config.node2.name)}</b>.`);
+  if (messageId) await showNode2(messageId);
+}
+
 function resolveService(input) {
   const raw = String(input || '')
     .toLowerCase()
@@ -313,6 +361,8 @@ async function openView(action, messageId) {
       return showStorage(messageId);
     case 'briefing':
       return showBriefing(messageId);
+    case 'node2':
+      return showNode2(messageId);
     default:
       return showMain(messageId);
   }
@@ -329,6 +379,7 @@ const COMMANDS = [
   { command: 'iptv', description: 'Salud de IPTV en Jellyfin' },
   { command: 'disk', description: 'Detalle de almacenamiento' },
   { command: 'maint', description: 'Mantenimiento y limpieza' },
+  { command: 'node2', description: 'Estado y control del Nodo 2' },
   { command: 'selftest', description: 'Diagnóstico de integraciones' },
   { command: 'help', description: 'Ayuda y comandos' },
 ];
@@ -366,6 +417,14 @@ async function handleCommand(text) {
       return showStorage();
     case 'maint':
       return showMaintenance();
+    case 'node2': {
+      const action = String(firstArgument || '').toLowerCase();
+      if (['on', 'encender', 'wake', 'wol'].includes(action)) return wakeNode2();
+      if (['off', 'apagar', 'shutdown', 'poweroff'].includes(action)) {
+        return confirmNode2Shutdown();
+      }
+      return showNode2();
+    }
     case 'help':
       return notify(ui.helpText());
     case 'selftest':
@@ -380,6 +439,17 @@ async function handleCommand(text) {
 
 async function handleNatural(text) {
   const lower = text.toLowerCase();
+
+  if (/\b(nodo\s*2|node2|homelab-node2)\b/i.test(text)) {
+    if (/\b(enciende|encender|prende|prender|wake|wol)\b/i.test(lower)) {
+      return wakeNode2();
+    }
+    if (/\b(apaga|apagar|shutdown|poweroff)\b/i.test(lower)) {
+      return confirmNode2Shutdown();
+    }
+    return showNode2();
+  }
+
   const restartMatch = text.match(/^(?:reinicia|reiniciar|restart)\s+(.+)$/i);
   if (restartMatch) return restartByName(restartMatch[1]);
 
@@ -466,6 +536,31 @@ async function onCallback(query) {
         await ack(query);
         await openView(action, messageId);
         break;
+
+      case 'node2': {
+        if (action === 'wake') {
+          await ack(query, 'Enviando WoL…');
+          await wakeNode2();
+          break;
+        }
+        if (action === 'shutdown') {
+          await ack(query);
+          await confirmNode2Shutdown();
+          break;
+        }
+        if (action === 'shutdown_yes') {
+          await ack(query, 'Apagando…');
+          await performNode2Shutdown(messageId);
+          break;
+        }
+        if (action === 'shutdown_cancel') {
+          await ack(query, 'Cancelado');
+          await clearButtons(messageId);
+          break;
+        }
+        await ack(query, 'Acción desconocida');
+        break;
+      }
 
       case 'restart': {
         const service = resolveService(action);
@@ -633,6 +728,14 @@ async function runSelfTest(includePanel = false) {
   await add('Pi-hole', async () => {
     const summary = await pihole.summary();
     return `${summary.queries.total} consultas · ${summary.queries.blocked} bloqueadas`;
+  });
+  await add('Nodo 2', async () => {
+    const status = await node2.status();
+    if (!status.online) return 'apagado (WoL listo)';
+    if (!status.ssh) throw new Error(status.error || 'sin SSH');
+    const cpu =
+      status.cpuPercent == null ? 'CPU n/d' : `${status.cpuPercent.toFixed(0)}% CPU`;
+    return `${status.hostname} · ${cpu} · ${formatBytes(status.memory?.used || 0)} RAM`;
   });
 
   await notify(telemetry.buildSelfTest(checks));

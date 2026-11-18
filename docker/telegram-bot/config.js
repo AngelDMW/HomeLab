@@ -25,7 +25,7 @@ const expectedContainers = [
 ];
 
 module.exports = {
-  version: '2.0.0',
+  version: '2.1.0',
   telegram: {
     token: env.TELEGRAM_TOKEN || '',
     chatId: toInt(env.CHAT_ID, 0),
@@ -50,6 +50,17 @@ module.exports = {
   },
   docker: {
     socketPath: env.DOCKER_SOCKET || '/var/run/docker.sock',
+  },
+  node2: {
+    name: env.NODE2_NAME || 'Nodo 2',
+    host: env.NODE2_HOST || '192.168.1.4',
+    tailscaleHost: env.NODE2_TAILSCALE_HOST || '',
+    mac: env.NODE2_MAC || '',
+    user: env.NODE2_SSH_USER || 'mrdavid',
+    port: toInt(env.NODE2_SSH_PORT, 22),
+    keyPath: env.NODE2_SSH_KEY || '/app/ssh/id_ed25519',
+    wolBroadcast: env.NODE2_WOL_BROADCAST || '192.168.1.255',
+    storagePath: env.NODE2_STORAGE_PATH || '/mnt/storage',
   },
   radarr: {
     url: 'http://127.0.0.1:7878',

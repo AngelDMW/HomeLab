@@ -10,6 +10,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /:/hostfs:ro
       - ./data:/app/data
+      - /home/mrdavid/.ssh/node2_bot:/app/ssh/id_ed25519:ro
     logging:
       driver: json-file
       options:

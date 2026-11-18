@@ -10,7 +10,7 @@
 - **Hardware:** Dell OptiPlex 5040 con Debian Linux 12 y Docker Engine (4 vCPU, 8 GB RAM).
 - **Almacenamiento:** Disco SSD de 228 GB (/dev/sda1 montado en /) con ~78 GB libres (64% de uso). Mantener siempre el espacio libre bajo monitoreo estricto.
 - **Ruta Multimedia:** /home/mrdavid/HomeLab/media en el host, mapeada como /media en contenedores (/media/descargas, /media/peliculas, /media/series) con hardlinks funcionando para movimientos atómicos.
-- **Volumen Crítico Nextcloud:** nextcloud_nextcloud_data (~118 GB).
+- **Volumen Crítico Nextcloud:** nextcloud_nextcloud_data (~119 GB; datadir ~115 GB, ~44k medios/~76 GB en `data/mrdavid/files`, previews appdata ~11 GB). Biblioteca de fotos expuesta a Immich como External Library **RO** (sin duplicar).
 - **Nodo 2:** AMD FX-8300 (8 núcleos), 3.8 GiB RAM, GPU Radeon RX 550 4 GB, Debian 12 (kernel 6.1.0-56), Docker Engine 29.10.0 + Compose v5.8.0. Sistema en SSD Kingston 223.6 GB; datos en HDD Toshiba 1 TB (`/mnt/storage`, ext4, UUID `1061ca8e-7ede-4c97-a487-1dcfed351446`, `nofail`). **No tocar el SSD Kingston.**
 - **GPU Nodo 2:** VA-API operativo (Mesa 22.3.6): H.264 encode/decode, HEVC Main/Main10 decode, JPEG y MPEG-2/VC-1.
 - **WoL Nodo 2:** `Wake-on: g` persistente en `enp3s0` vía `wol-enp3s0.service`; MAC `e0:d5:5e:02:70:aa`.
@@ -25,10 +25,11 @@
   - FlareSolverr (:8191)
   - qBittorrent (:8081 WebUI, :6881 torrents) - API v2.11 / qBittorrent 5.3
   - Nextcloud (:8080)
+  - Immich (:2283, Nodo 1, `docker/immich`) — `immich-server` (2g, QuickSync `/dev/dri`), `immich-postgres` vectorial (768m), `immich-redis`/Valkey (256m), `restart: unless-stopped`. Subidas nuevas en `/home/mrdavid/HomeLab/docker/immich/library`; External Library RO de Nextcloud en `/usr/src/app/external/nextcloud-photos` (`/var/lib/docker/volumes/nextcloud_nextcloud_data/_data/data/mrdavid/files/Photos`, ~44.071 medios, sin duplicar). ML delegado a `http://192.168.1.4:3003`. Concurrencia moderada vía `immich-config.json` (thumbnails/video 1, metadata 2).
   - Pi-hole v6 (:53 DNS, :80 Web Admin)
   - Portainer (:8000, :9000, :9443 HTTPS)
   - Optiplex Brain / Telegram Bot 2.1.0 (optiplex-chatops - network_mode host, IPv4-first)
-  - Nodo 2: Docker listo, sin servicios permanentes (RX 550 VA-API + `/mnt/storage`)
+  - Nodo 2: `portainer_agent` (:9001, desplegado manualmente) e `immich-machine-learning` (:3003, `docker/immich-ml`, 2560m, cache `/mnt/storage/immich-ml-cache`, bajo demanda). Docker listo (RX 550 VA-API + `/mnt/storage`).
 
 ## Topología de Red (actual)
 - **Router:** ZTE F6201B en `192.168.1.1`; administración solo por `http://192.168.1.1:65080` (80/443 cerrados). DHCP activo con pool `.5`–`.249` (`.254` excluida para el AP). Radio 2.4 GHz apagado; 5 GHz con canal primario 36, 160 MHz, SSID `.I.`, WPA2-AES, WPS off. El firmware no expone el ancho de banda: permanece en 160 MHz y rechaza `BandWidth=80MHz`; 80 MHz no es configurable. Con 160 MHz el bloque 36–64 incluye subcanales DFS 52–64, así que la radio sigue expuesta a radar aunque el primario no sea DFS.
@@ -68,6 +69,13 @@
 - **Tema Jellyfin:** CSS personalizado vía `POST /System/Configuration/Branding` con `CustomCss`; importa ElegantFin upstream, el add-on de Media Bar y el companion `mihaif7/elegantfin-jf12` para el layout Modern. Verificar con `GET /Branding/Css`.
 - **Metadatos:** bibliotecas `Movies` (`/media/peliculas`) y `Series` (`/media/series`) con `PreferredMetadataLanguage=es-419` y `MetadataCountryCode=DO`. Refrescos completos vía `POST /Items/{id}/Refresh?metadataRefreshMode=FullRefresh&imageRefreshMode=FullRefresh`.
 - **Backup de referencia:** `/home/mrdavid/backups-compose/20261118_170101_multimedia_pre_mejoras/`.
+
+
+## Immich — Operación y Respaldo
+- **Nodo 1 (stack):** `/home/mrdavid/HomeLab/docker/immich` (`docker compose up -d`). UI/API `http://192.168.1.3:2283`. Datos: `library/` (subidas) y `postgres/` (DB) locales, ignorados por git; config en `immich-config.json`.
+- **Nodo 2 (ML):** `/home/mrdavid/HomeLab/docker/immich-ml` en `192.168.1.4` (espejo IaC en Nodo 1). Levantar/parar bajo demanda: `ssh homelab-node2 "cd /home/mrdavid/HomeLab/docker/immich-ml && docker compose up -d|stop"`. Si el Nodo 2 está apagado, Immich sigue sirviendo galería/subidas (jobs de ML quedan pendientes).
+- **Respaldo automático:** `/home/mrdavid/HomeLab/scripts/backup_immich_to_node2.sh` (cron `30 3 * * *`): si Nodo 2 responde por SSH, hace `pg_dump` de `immich-postgres` y `rsync` de `library` a `/mnt/storage/backups/immich/` (`library/`, `db/`); si no, sale limpio sin error. Log: `docker/immich/backup_to_node2.log`.
+- **Protección:** External Library de Nextcloud montada **:ro**; no borrar/mover volumen `nextcloud_nextcloud_data` ni `/media`. No versionar `.env`/datos/DB.
 
 ## Restricciones Estrictas de Seguridad
 1. **Protección de datos:** NUNCA borrar ni mover archivos dentro de /home/mrdavid/HomeLab/media (ni /media en contenedores), descargas activas de qBittorrent, ni volúmenes de Nextcloud sin confirmación explícita. El bot elimina torrents de qBittorrent sin borrar archivos.

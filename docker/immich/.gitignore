@@ -1,0 +1,4 @@
+library/
+postgres/
+backups/
+backup_to_node2.log

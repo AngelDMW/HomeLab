@@ -50,3 +50,9 @@ backups-compose/
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Immich runtime data (keep compose/config examples only)
+docker/immich/library/
+docker/immich/postgres/
+docker/immich/backups/
+docker/immich/backup_to_node2.log

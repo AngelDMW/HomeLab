@@ -1,0 +1,15 @@
+name: immich-ml
+
+services:
+  immich-machine-learning:
+    container_name: immich-machine-learning
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
+    volumes:
+      - /mnt/storage/immich-ml-cache:/cache
+    environment:
+      - TZ=${TZ:-America/Santo_Domingo}
+    ports:
+      - "3003:3003"
+    restart: unless-stopped
+    mem_limit: 2560m
+    cpus: "6.0"

@@ -78,7 +78,8 @@ ssh homelab-node2 'vainfo | grep -E "Driver version|H264High|HEVCMain"'
 ## 📦 Inventario de Servicios Docker
 
 ### 1. Nube Privada e Infraestructura Base
-- **Nextcloud** (`:8080`): Nube privada personal para sincronización de archivos, galería y respaldos móviles. Volumen de datos dedicado: `nextcloud_nextcloud_data` (~119 GB).
+- **Nextcloud** (`:8080`): Nube privada personal para sincronización de archivos, galería y respaldos móviles. Volumen de datos dedicado: `nextcloud_nextcloud_data` (~119 GB). Biblioteca de fotos en `/var/lib/docker/volumes/nextcloud_nextcloud_data/_data/data/mrdavid/files/Photos` (~44.071 medios, ~76 GB) expuesta a Immich como External Library **solo lectura**.
+- **Immich** (`:2283`, `docker/immich`, Nodo 1): galería nativa iOS/Web. Stack: `immich-server` (2 GB, `restart: unless-stopped`, QuickSync vía `/dev/dri` para HEVC/MOV), `immich-postgres` con extensión vectorial (768 MB) y `immich-redis`/Valkey (256 MB). Subidas nuevas en `/home/mrdavid/HomeLab/docker/immich/library`; galería histórica de Nextcloud montada **RO** en `/usr/src/app/external/nextcloud-photos:ro` (sin duplicar). Concurrencia moderada de jobs (miniaturas/transcodificación 1 hilo, extracción 2) vía `immich-config.json`. Machine Learning delegado al Nodo 2 (`IMMICH_MACHINE_LEARNING_URL=http://192.168.1.4:3003`); la galería sigue operativa si el ML está apagado.
 - **Pi-hole** (`:53`, `:80`): Servidor DNS sinkhole para bloqueo centralizado de anuncios y telemetría en toda la red doméstica. El DHCP del ZTE anuncia `192.168.1.3` como DNS primario; Pi-hole reenvía a `8.8.8.8`/`8.8.4.4` y mantiene la lista StevenBlack.
 - **Portainer CE** (`:8000`, `:9000`, `:9443`): Panel web de administración y monitoreo de contenedores y volúmenes Docker.
 
@@ -145,10 +146,13 @@ Los Custom Formats creados en ambos Servarr son: `LATINO`, `DUAL`, `MULTI`, `ESP
 ### 3. Asistente Autónomo (ChatOps)
 - **Optiplex Brain 2.1.0** (`docker/telegram-bot`, `network_mode: host`): agente modular en Node.js 18 con polling IPv4-first. Integra telemetría cada 60 s, autorreparación de contenedores, guardián de almacenamiento, bus de eventos multimedia/red, control multi-nodo del Nodo 2 (estado, Wake-on-LAN y apagado) y consola interactiva por Telegram con botones inline y lenguaje natural. Solo responde al `CHAT_ID` autorizado.
 
-### 4. Nodo 2 — Capacidad de Reserva
-- **Docker Engine 29.10.0 + Compose v5.8.0** instalados y activos, sin cargas de trabajo permanentes.
-- **GPU RX 550** con VA-API listo para futuros servicios de transcodificación (H.264 encode/decode, HEVC Main/Main10 decode, JPEG, MPEG-2/VC-1).
-- **HDD Toshiba 1 TB** (`/mnt/storage`, ext4) para datos; el SSD Kingston queda reservado al sistema operativo.
+### 4. Nodo 2 — Cómputo auxiliar y respaldo
+- **Docker Engine 29.10.0 + Compose v5.8.0** instalados y activos.
+- **Portainer Agent** (`:9001`, `portainer_agent`): agente desplegado manualmente para gestión remota del Nodo 2 desde Portainer CE del Nodo 1.
+- **Immich Machine Learning** (`:3003`, `docker/immich-ml`, `immich-machine-learning`, 2560 MB, 6 CPU): reconocimiento facial y búsqueda inteligente para Immich; caché de modelos en `/mnt/storage/immich-ml-cache` (HDD Toshiba). Operación bajo demanda (puede apagarse cuando el Nodo 2 no está disponible).
+- **Respaldo Immich**: destino `/mnt/storage/backups/immich/` (library + dumps de DB) sincronizado desde Nodo 1.
+- **GPU RX 550** con VA-API (H.264 encode/decode, HEVC Main/Main10 decode, JPEG, MPEG-2/VC-1).
+- **HDD Toshiba 1 TB** (`/mnt/storage`, ext4, UUID) para datos/modelos/backups; el SSD Kingston queda reservado al sistema operativo.
 
 ---
 
@@ -168,6 +172,16 @@ Los Custom Formats creados en ambos Servarr son: `LATINO`, `DUAL`, `MULTI`, `ESP
 │   │   ├── docker-compose.yml
 │   │   ├── conf/             # Configuración y base Threadfin (persistente)
 │   │   └── temp/             # Caché/buffer temporal
+│   ├── immich/               # Immich (Nodo 1): server + Postgres vectorial + Redis/Valkey
+│   │   ├── docker-compose.yml
+│   │   ├── immich-config.json # Concurrencia moderada de jobs
+│   │   ├── .env.example
+│   │   ├── library/          # Subidas nuevas (ignorado por git)
+│   │   └── postgres/         # Datos Postgres (ignorado por git)
+│   ├── immich-ml/            # Espejo IaC de Immich Machine Learning (desplegado en Nodo 2)
+│   │   ├── docker-compose.yml
+│   │   ├── .env.example
+│   │   └── README.md
 │   ├── telegram-bot/         # Optiplex Brain (agente autónomo ChatOps)
 │   │   ├── Dockerfile
 │   │   ├── bot.js            # Entrada, comandos, callbacks y autocontrol
@@ -185,6 +199,8 @@ Los Custom Formats creados en ambos Servarr son: `LATINO`, `DUAL`, `MULTI`, `ESP
 │   │   └── docker-compose.yml
 │   └── portainer/            # Definición IaC de Portainer CE
 │       └── docker-compose.yml
+├── scripts/
+│   └── backup_immich_to_node2.sh # Dump Postgres + rsync library al Nodo 2 si está encendido (cron diario)
 ├── media/                    # Almacenamiento raíz compartido (Host: /home/mrdavid/HomeLab/media -> Contenedor: /media)
 │   ├── descargas/            # Torrents activos e incompletos de qBittorrent
 │   ├── peliculas/            # Librería final de películas (Radarr)
@@ -263,6 +279,14 @@ Para evitar duplicar espacio en disco en la partición SSD:
 1. Todos los servicios de descarga y gestión (`qbittorrent`, `radarr`, `sonarr`, `jellyfin`) montan la misma ruta raíz `/home/mrdavid/HomeLab/media` en el contenedor bajo `/media`.
 2. Al completarse una descarga en `/media/descargas`, Radarr/Sonarr crean un **hardlink** (enlace duro apuntando al mismo inodo) en `/media/peliculas` o `/media/series`.
 3. Esto permite seguir sembrando el torrent en qBittorrent sin consumir doble almacenamiento en el disco.
+
+---
+
+## 🗄️ Respaldo de Immich hacia Nodo 2
+
+- **Script:** `/home/mrdavid/HomeLab/scripts/backup_immich_to_node2.sh` (cron diario `30 3 * * *`, log `docker/immich/backup_to_node2.log`).
+- **Comportamiento:** comprueba SSH a `192.168.1.4`; si el Nodo 2 no responde, **sale limpiamente sin error**. Si está encendido: `pg_dump` (gzip) de `immich-postgres` (retención local 7 días) y `rsync` de `/home/mrdavid/HomeLab/docker/immich/library` hacia `/mnt/storage/backups/immich/` (`library/` + `db/`).
+- **Requisito:** SSH `mrdavid@192.168.1.4` desde Nodo 1 y `/mnt/storage` montado por UUID (nunca tocar SSD Kingston).
 
 ---
 

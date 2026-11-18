@@ -1,0 +1,9 @@
+{
+  "job": {
+    "thumbnailGeneration": { "concurrency": 1 },
+    "videoConversion": { "concurrency": 1 },
+    "smartSearch": { "concurrency": 1 },
+    "faceDetection": { "concurrency": 1 },
+    "metadataExtraction": { "concurrency": 2 }
+  }
+}

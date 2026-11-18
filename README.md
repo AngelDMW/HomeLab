@@ -84,7 +84,7 @@ ssh homelab-node2 'vainfo | grep -E "Driver version|H264High|HEVCMain"'
 - **Portainer CE** (`:8000`, `:9000`, `:9443`): Panel web de administración y monitoreo de contenedores y volúmenes Docker.
 
 ### 2. Stack Multimedia Automatizado (Servarr + Media)
-- **Jellyfin** (`:8096`, `network_mode: host`): Servidor multimedia con **Intel QuickSync (QSV)** activo sobre `/dev/dri/renderD128` (H.264 encode/decode, HEVC 8-bit decode, MPEG-2/VC-1 decode), tema ElegantFin + acentos Netflix, Media Bar, Intro Skipper y TMDb Box Sets. Metadatos en `es-419`/`DO`.
+- **Jellyfin** (`:8096`, `network_mode: host`): Servidor multimedia con **Intel QuickSync (QSV)** activo sobre `/dev/dri/renderD128` (H.264 encode/decode, HEVC 8-bit decode, MPEG-2/VC-1 decode) y rediseño **HomeFlix** (ElegantFin + CSS propio, Home Screen Sections, Jellyfin Enhanced, Media Bar, Intro Skipper y TMDb Box Sets). Metadatos en `es-419`/`DO`.
 - **Threadfin** (`:34400`, `docker/threadfin`): proxy/gestor de TV en vivo para Android TV, **separado de Jellyfin**. Imagen `fyb3roptik/threadfin:latest`, `restart: unless-stopped`, límite `512 MB` / `1.5 CPU`, TZ `America/Santo_Domingo`. Volúmenes persistentes: `./conf` → `/home/threadfin/conf` y `./temp` → `/tmp/threadfin`. EPG en modo `XEPG`, buffer `ffmpeg` habilitado (global y por playlist).
   - **Playlists fuente:** República Dominicana `https://iptv-org.github.io/iptv/countries/do.m3u` (262 streams) y Español `https://iptv-org.github.io/iptv/languages/spa.m3u` (2441 streams).
   - **EPG XMLTV:** `https://raw.githubusercontent.com/davidmuma/EPG_dobleM/master/guiatv.xml.gz` (DobleM, español), asociada vía `url-tvg`.
@@ -92,7 +92,7 @@ ssh homelab-node2 'vainfo | grep -E "Driver version|H264High|HEVCMain"'
   - **Curaduría activa (45 canales, verificados vivos desde Nodo 1 con `curl` timeout 5s el 2026-11-18):** 20 `República Dominicana` (1–20) + 25 `Internacionales` en español (21–45), nombres limpios, numeración secuencial desde 1. `Digital 15` excluido (403 en probe).
   - **Activación (alternativa controlada):** la activación automática XEPG no persistió en Threadfin 1.2.37 (cleanup regeneraba `xepg.json` vacío/0 canales). Se sirven salidas curadas canónicas (`conf/data/curated.m3u|.xml|.xml.gz`) aplicadas a `threadfin.m3u|.xml|.xml.gz` con `/home/mrdavid/HomeLab/docker/threadfin/apply_curated.sh`.
   - **Implicación de actualización:** Threadfin regenera las salidas en cada arranque/ciclo XEPG. Tras reiniciar el contenedor o una actualización XEPG, ejecutar `ssh homelab 'bash /home/mrdavid/HomeLab/docker/threadfin/apply_curated.sh'` para restaurar la curaduría. La M3U curada usa URLs directas de origen (los endpoints M3U/XMLTV quedan operativos; buffer ffmpeg de Threadfin aplica en modo proxy/stream). Fuentes/EPG originales permanecen en `conf/data/` para re-curar. Backup conf previo: `/home/mrdavid/backups-compose/20261118_121126_threadfin_conf/conf`.
-- **Seerr / Jellyseerr** (`:5055`): Portal de descubrimiento y solicitudes de contenido para usuarios.
+- **Seerr / Jellyseerr** (`:5055` → `seerr-theme`): Portal de descubrimiento y solicitudes con identidad **HomeFlix**. Un proxy `nginx:alpine` atiende `:5055` e inyecta `custom-theme.css`; Seerr queda interno en `127.0.0.1:5056`.
 - **Radarr** (`:7878`): Automatización, búsqueda y gestión de películas.
 - **Sonarr** (`:8989`): Automatización, búsqueda y gestión de series de TV.
 - **Bazarr** (`:6767`, `lscr.io/linuxserver/bazarr:latest`): Subtítulos automáticos multi-idioma. Perfil activo **“Español Latino + Español + Forzados”** (`ea`, `es`, `ea:forced`). Sincronizado con Radarr y Sonarr; proveedores sin autenticación: `argenteam`, `subscenter`, `subtitulamostv`, `subs4free`, `subs4series`, `podnapisi`, `subf2m`, `yifysubtitles`, `tvsubtitles`, `addic7ed`, `subtitlecat`, `supersubtitles`. Los subtítulos se guardan junto al video (`<archivo>.<idioma>.srt`).
@@ -135,13 +135,42 @@ Los Custom Formats creados en ambos Servarr son: `LATINO`, `DUAL`, `MULTI`, `ESP
 - **Sin indexadores privados:** las definiciones públicas exclusivamente españolas no existen en Prowlarr/Jackett (MejorTorrent/DonTorrent están caídos o son privados). La cobertura latina depende de Knaben, TPB, 1337x y extratorrent.
 - **Caso Batman (2022):** el único release `Dual latino` está en TPB con 1 seeder inactivo; los `SPANiSH` de dem3nt3 (1080p/2160p) no tienen seeds reales. La película quedó monitoreada y sin archivo en perfil Latino: Radarr la descargará sola si aparece una versión sembrada. Para no volver a bajar inglés, **no** bajar `minFormatScore`.
 
-#### Jellyfin — experiencia tipo streaming
+#### Jellyfin — experiencia tipo streaming (rediseño HomeFlix, 2026-11-18)
 
-- **Tema:** ElegantFin + companion para el layout Modern de Jellyfin 12 + soporte de Media Bar, aplicado como CSS personalizado desde el panel. Acentos rojos tipo Netflix, tarjetas redondeadas, header translúcido y hero cinematográfico.
-- **Plugins activos:** Media Bar `3.0.2.0` (hero con backdrop, logo, sinopsis, play y tráilers), File Transformation `3.0.3.0` (requerido por Media Bar), Intro Skipper `12.0.6.0` (detecta intro/créditos y usa Media Segments nativos), TMDb Box Sets `15.0.0.0` (colecciones automáticas).
+- **Tema:** ElegantFin + companion para el layout Modern de Jellyfin 12 + soporte de Media Bar, más una capa propia de ~18 KB aplicada en `branding.xml` (SCSS/SQLite no se tocan). Fondo `#0b0b0d`, header flotante con `backdrop-filter: blur(16px)`, acentos **rojo Netflix `#E50914`** (hover `#f40612`), barras de progreso rojas, tarjetas de 12 px con hover `scale(1.04)`, login *glassmorphism* y tipografía Inter.
+- **Media Bar (hero):** carrusel al **68 % de la altura de pantalla** (`68vh`), degradado inferior que funde con `#0b0b0d` para que las filas nazcan desde abajo, `ClearLogo` nítido con sombra, sinopsis limitada a **3 líneas** y botones estilo Netflix: principal blanco sólido con texto negro, secundario `rgba(109,109,110,0.7)`.
+- **Filas dinámicas (Home Screen Sections `3.0.4.0`, `targetAbi 12.4.0.0`):** activo con carga perezosa de 3 filas por página. Configuradas 8: `ContinueWatching`, `RecentlyAddedMovies`, `RecentlyAddedShows`, `Collections`, `BecauseYouWatched`, `WatchAgain`, `DiscoverMovies` y `DiscoverTV`. Las dos Discover consumen Seerr (`http://127.0.0.1:5055`) y las Upcoming pueden usar Radarr/Sonarr; `Collections` y `BecauseYouWatched` aparecen cuando hay colecciones o historial. **HSS no ofrece una sección “Mejor valoradas”**: el hueco de fila destacada se cubre con Discover + Watch Again.
+- **Jellyfin Enhanced `12.16.0.0`:** etiquetas de puntuación en pósters/fichas (TMDb vía `CommunityRating`), badges de estado (*Nuevo*, *Tendencia*, *Hitos*), banderas de idioma de audio y estilos de etiqueta en esquinas. IMDb puro requiere clave de **MDBList u OMDb** (ninguna configurada todavía).
+- **Plugins base:** Media Bar `3.0.2.0` (hero con backdrop, logo, sinopsis, play y tráilers), File Transformation `3.0.3.0` (requerido por Media Bar y por la inyección de HSS/Enhanced), Intro Skipper `12.0.6.0` (detecta intro/créditos y usa Media Segments nativos), TMDb Box Sets `15.0.0.0` (colecciones automáticas).
+- **Configuración por API** (Jellyfin 12): branding con `POST /System/Configuration/Branding` (`CustomCss`), plugins con `POST /Plugins/{guid}/Configuration` y filas con `GET/POST /HomeScreen/Configuration` (lectura) + `POST /Plugins/b8298e01-2697-407a-b44d-aa8dc795e850/Configuration` (escritura).
+- **Nota:** las anulaciones de filas por usuario requieren el plugin **PluginPages** (no instalado); las filas funcionan igual a nivel de servidor.
 - **Metadatos:** bibliotecas `Movies` y `Series` en `es-419` con país `DO`; títulos, sinopsis, géneros, backdrops y logos se piden a TMDb/OMDb en español.
 - **QuickSync:** `HardwareAccelerationType=qsv`, dispositivo `/dev/dri/renderD128`, decodificación `h264`, `hevc` (8-bit), `mpeg2video`, `vc1`; encoding H.264 por hardware. HEVC encode y decodificación 10-bit/VP9 **no** están soportados por la iGPU Skylake y quedan desactivados para evitar fallbacks silenciosos.
 - **Idioma de audio:** el perfil de usuario `Mrdavid` tiene `AudioLanguagePreference=spa` y `PlayDefaultAudioTrack=true`; en archivos duales arranca en español. Como `RememberAudioSelections=true`, si se cambia manualmente la pista en un título, Jellyfin recuerda esa elección por ítem.
+- **Respaldo del rediseño:** `/home/mrdavid/backups-compose/20261118_185649_netflix_ui/` (branding, system.xml, plugins completos, compose y settings de Seerr).
+
+#### Seerr — HomeFlix con proxy inyector
+
+Seerr no se modifica a nivel de imagen: el tema se inyecta en el HTML con `sub_filter` de nginx, así que **sobrevive a `docker compose pull`**.
+
+```text
+:5055  →  seerr-theme (nginx:alpine, mem_limit 32m)
+             ├─ /custom-theme.css  (volumen local, text/css, no-cache)
+             └─ proxy_pass → jellyseerr:5055   (solo 127.0.0.1:5056 en el host)
+```
+
+- **Archivos:** `docker/media-stack/seerr-theme/conf/default.conf` y `docker/media-stack/seerr-theme/html/custom-theme.css` (montados por **directorio**, no por archivo, para que editar no rompa el bind mount).
+- **Inyección:** `proxy_set_header Accept-Encoding ""` + `sub_filter '</head>' '<link rel="stylesheet" href="/custom-theme.css">...'` con `sub_filter_once off`; `Host $http_host` y `X-Forwarded-*` conservan puerto y esquema. `Connection` usa un `map $http_upgrade` para websockets.
+- **Estética:** elimina el azulado `#111827` y el índigo `#6366f1`/`#4f46e5`; fondo `#0b0b0d`, tarjetas/modales `#141416` con borde `rgba(255,255,255,.08)`, sidebar y barra superior con `blur(16px)`, botones/acentos en rojo Netflix, tarjetas a 12 px con `scale(1.03)`, *Disponible* en verde esmeralda `#10b981` y *Solicitado* en ámbar `#f59e0b`, login en vidrio esmerilado.
+- **Branding:** `applicationTitle` = **HomeFlix** (persistido en `jellyseerr/settings.json`).
+- **Aplicar cambios:** editar el CSS y recargar el proxy sin recrear nada:
+
+```bash
+ssh homelab "docker exec seerr-theme nginx -s reload"
+```
+
+- **Verificación:** `curl -I http://192.168.1.3:5055/custom-theme.css` (200, `text/css`) y comprobar que `/login` incluye una referencia a `custom-theme.css`.
+- **Puertos:** `jellyseerr` ya **no** publica `5055` en la LAN; solo `127.0.0.1:5056` para diagnóstico. No volver a mapear `5055:5055` en `jellyseerr` o el proxy no arrancará por conflicto de puerto.
 
 ### 3. Asistente Autónomo (ChatOps)
 - **Optiplex Brain 2.1.0** (`docker/telegram-bot`, `network_mode: host`): agente modular en Node.js 18 con polling IPv4-first. Integra telemetría cada 60 s, autorreparación de contenedores, guardián de almacenamiento, bus de eventos multimedia/red, control multi-nodo del Nodo 2 (estado, Wake-on-LAN y apagado) y consola interactiva por Telegram con botones inline y lenguaje natural. Solo responde al `CHAT_ID` autorizado.
@@ -161,9 +190,11 @@ Los Custom Formats creados en ambos Servarr son: `LATINO`, `DUAL`, `MULTI`, `ESP
 ```text
 /home/mrdavid/HomeLab/
 ├── docker/
-│   ├── media-stack/          # Stack Radarr, Sonarr, Bazarr, Prowlarr, qBittorrent, Jellyseerr, Flaresolverr
+│   ├── media-stack/          # Stack Radarr, Sonarr, Bazarr, Prowlarr, qBittorrent, Seerr, Flaresolverr
 │   │   ├── docker-compose.yml
 │   │   ├── bazarr/           # Config/DB de Bazarr (perfil es-419 + es + forzados)
+│   │   ├── jellyseerr/       # Config/DB de Seerr (ignorado por git)
+│   │   ├── seerr-theme/      # Proxy nginx + tema HomeFlix (conf/default.conf, html/custom-theme.css)
 │   │   └── .env.example
 │   ├── jellyfin/             # Servidor multimedia Jellyfin (host networking + QSV)
 │   │   ├── docker-compose.yml

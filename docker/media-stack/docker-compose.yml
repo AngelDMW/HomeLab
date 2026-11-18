@@ -65,7 +65,21 @@ services:
     volumes:
       - ./jellyseerr:/app/config
     ports:
-      - 5055:5055
+      - 127.0.0.1:5056:5055
+    restart: unless-stopped
+
+  # Reverse proxy ligero: inyecta el tema HomeFlix sin tocar la imagen de Seerr
+  seerr-theme:
+    image: nginx:alpine
+    container_name: seerr-theme
+    mem_limit: 32m
+    depends_on:
+      - jellyseerr
+    volumes:
+      - ./seerr-theme/conf:/etc/nginx/conf.d:ro
+      - ./seerr-theme/html:/usr/share/nginx/html:ro
+    ports:
+      - 5055:80
     restart: unless-stopped
 
   flaresolverr:

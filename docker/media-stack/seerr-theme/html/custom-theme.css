@@ -1,0 +1,348 @@
+/* ============================================================
+   HomeFlix · Seerr 3.5 — tema Netflix / HBO Max
+   Inyectado por nginx (sub_filter) sin modificar la imagen.
+   ============================================================ */
+
+:root {
+  --hf-bg: #0b0b0d;
+  --hf-surface: #141416;
+  --hf-surface-2: #1b1b1e;
+  --hf-surface-3: #232327;
+  --hf-red: #e50914;
+  --hf-red-hover: #f40612;
+  --hf-red-press: #b20710;
+  --hf-hairline: rgba(255, 255, 255, 0.08);
+  --hf-text: #f4f4f6;
+  --hf-text-dim: rgba(255, 255, 255, 0.62);
+  --hf-emerald: #10b981;
+  --hf-amber: #f59e0b;
+  color-scheme: dark;
+}
+
+/* ---------- Base ---------- */
+html,
+body,
+#__next {
+  background-color: var(--hf-bg) !important;
+  color: var(--hf-text);
+}
+body {
+  font-family: "Inter", "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+}
+#__next {
+  min-height: 100vh;
+}
+::selection {
+  background: rgba(229, 9, 20, 0.35);
+  color: #fff;
+}
+
+/* ---------- Paleta gris -> carbón ---------- */
+.bg-gray-900 { background-color: var(--hf-bg) !important; }
+.bg-gray-800 { background-color: var(--hf-surface) !important; }
+.bg-gray-700 { background-color: var(--hf-surface-2) !important; }
+.bg-gray-600 { background-color: var(--hf-surface-3) !important; }
+.bg-gray-500 { background-color: #2e2e33 !important; }
+
+[class*="bg-gray-900/"] { background-color: rgba(11, 11, 13, 0.86) !important; }
+[class*="bg-gray-800/"] { background-color: rgba(20, 20, 22, 0.82) !important; }
+[class*="bg-gray-700/"] { background-color: rgba(27, 27, 30, 0.88) !important; }
+
+[class*="hover:bg-gray-800"]:hover,
+[class*="hover:bg-gray-700"]:hover,
+[class*="hover:bg-gray-600"]:hover {
+  background-color: #202024 !important;
+}
+[class*="focus:bg-gray-"]:focus,
+[class*="focus:bg-gray-"]:focus-visible {
+  background-color: #202024 !important;
+}
+
+.border-gray-700,
+.border-gray-600,
+.border-gray-500 { border-color: var(--hf-hairline) !important; }
+[class*="border-gray-"] { border-color: var(--hf-hairline) !important; }
+[class*="divide-gray-"] > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--hf-hairline) !important;
+}
+
+.text-gray-100,
+.text-gray-200,
+.text-gray-300 { color: var(--hf-text) !important; }
+.text-gray-400 { color: var(--hf-text-dim) !important; }
+.text-gray-500 { color: rgba(255, 255, 255, 0.48) !important; }
+
+/* ---------- Índigo / morado -> Rojo Netflix ---------- */
+.bg-indigo-600,
+[class*="bg-indigo-600"] { background-color: var(--hf-red) !important; }
+.bg-indigo-500,
+[class*="bg-indigo-500"] { background-color: var(--hf-red-hover) !important; }
+.bg-indigo-700,
+[class*="bg-indigo-700"] { background-color: var(--hf-red-press) !important; }
+[class*="bg-indigo-800"],
+[class*="bg-indigo-900"] { background-color: rgba(229, 9, 20, 0.16) !important; }
+
+[class*="hover:bg-indigo-"]:hover { background-color: var(--hf-red-hover) !important; }
+
+.text-indigo-400,
+[class*="text-indigo-400"],
+[class*="text-indigo-500"] { color: #ff6b73 !important; }
+[class*="text-indigo-600"],
+[class*="text-indigo-300"] { color: #ff8a90 !important; }
+
+[class*="border-indigo-"] { border-color: rgba(229, 9, 20, 0.55) !important; }
+[class*="ring-indigo-"] { --tw-ring-color: rgba(229, 9, 20, 0.55) !important; }
+[class*="focus:ring-indigo-"]:focus { --tw-ring-color: rgba(229, 9, 20, 0.65) !important; }
+[class*="focus:border-indigo-"]:focus { border-color: var(--hf-red) !important; }
+[class*="hover:text-indigo-"]:hover { color: var(--hf-red-hover) !important; }
+
+/* Botones primarios planos (indigo) con microinteracción */
+button[class*="bg-indigo-"],
+a[class*="bg-indigo-"] {
+  border-radius: 999px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em;
+  transition: background-color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+button[class*="bg-indigo-"]:hover,
+a[class*="bg-indigo-"]:hover {
+  box-shadow: 0 8px 22px rgba(229, 9, 20, 0.32);
+  transform: translateY(-1px);
+}
+
+/* ---------- Verde / ámbar de estados ---------- */
+[class*="bg-green-500"],
+[class*="bg-green-600"] { background-color: var(--hf-emerald) !important; }
+[class*="text-green-500"],
+[class*="text-green-400"] { color: #34d399 !important; }
+[class*="bg-yellow-500"],
+[class*="bg-yellow-600"] { background-color: var(--hf-amber) !important; }
+[class*="bg-red-500"],
+[class*="bg-red-600"] { background-color: var(--hf-red) !important; }
+
+/* ---------- Barra lateral translúcida ---------- */
+.sidebar,
+nav.sidebar,
+nav[class*="bg-gray-800"] {
+  background: rgba(13, 13, 15, 0.78) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(16px) saturate(160%);
+  border-right: 1px solid var(--hf-hairline) !important;
+}
+.sidebar a,
+nav.sidebar a {
+  border-radius: 10px;
+  transition: background-color .16s ease, color .16s ease;
+}
+.sidebar a:hover,
+nav.sidebar a:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+.sidebar a[aria-current="page"],
+.sidebar a[class*="bg-gray-700"],
+.sidebar a[class*="bg-indigo"] {
+  background: rgba(229, 9, 20, 0.14) !important;
+  box-shadow: inset 3px 0 0 0 var(--hf-red);
+  color: #fff !important;
+}
+.sidebar-close-button button {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ---------- Barra superior / buscador ---------- */
+#__next header,
+#__next div[class*="sticky"][class*="top-0"] {
+  background: rgba(11, 11, 13, 0.72) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(16px) saturate(160%);
+  border-bottom: 1px solid var(--hf-hairline) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+#__next input[type="text"],
+#__next input[type="search"],
+#__next input[type="email"],
+#__next input[type="password"],
+#__next input[type="number"],
+#__next textarea,
+#__next select {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--hf-hairline) !important;
+  border-radius: 12px !important;
+  color: var(--hf-text) !important;
+  transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+#__next input[type="text"]:focus,
+#__next input[type="search"]:focus,
+#__next input[type="email"]:focus,
+#__next input[type="password"]:focus,
+#__next textarea:focus,
+#__next select:focus {
+  background-color: rgba(255, 255, 255, 0.07) !important;
+  border-color: rgba(229, 9, 20, 0.65) !important;
+  box-shadow: 0 0 0 3px rgba(229, 9, 20, 0.18) !important;
+  outline: none !important;
+}
+#__next input::placeholder,
+#__next textarea::placeholder {
+  color: rgba(255, 255, 255, 0.38) !important;
+}
+#__next form[class*="relative"] input {
+  border-radius: 999px !important;
+}
+
+/* ---------- Tarjetas de medios ---------- */
+#__next .rounded-lg,
+#__next .rounded-xl,
+#__next .rounded-2xl {
+  border-radius: 12px;
+}
+#__next a[href^="/movie/"],
+#__next a[href^="/tv/"] {
+  border-radius: 12px;
+  transition: transform .22s cubic-bezier(.2, .7, .3, 1), box-shadow .22s ease;
+  will-change: transform;
+}
+#__next a[href^="/movie/"]:hover,
+#__next a[href^="/tv/"]:hover {
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.62);
+  transform: scale(1.03);
+  z-index: 5;
+}
+#__next a[href^="/movie/"] img,
+#__next a[href^="/tv/"] img {
+  border-radius: 12px;
+}
+#__next a[href^="/movie/"]:hover img,
+#__next a[href^="/tv/"]:hover img {
+  filter: brightness(1.06);
+}
+#__next .group:hover img {
+  filter: brightness(1.06);
+}
+
+/* Tarjetas/contenedores con borde sutil */
+#__next [class*="bg-gray-800"][class*="rounded"] {
+  border: 1px solid var(--hf-hairline);
+}
+#__next [class*="bg-gray-800"][class*="shadow"] {
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55) !important;
+}
+
+/* ---------- Modales y menús ---------- */
+#__next [role="dialog"] > div,
+#__next .modal,
+#__next [class*="bg-gray-800"][class*="ring-1"] {
+  background: var(--hf-surface) !important;
+  border: 1px solid var(--hf-hairline);
+  border-radius: 16px !important;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7) !important;
+}
+#__next [role="menu"],
+#__next [role="listbox"] {
+  background: var(--hf-surface) !important;
+  border: 1px solid var(--hf-hairline) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65) !important;
+}
+#__next [role="menuitem"]:hover,
+#__next [role="option"]:hover,
+#__next [role="option"][aria-selected="true"] {
+  background: rgba(229, 9, 20, 0.16) !important;
+  color: #fff !important;
+}
+
+/* ---------- Login cinematográfico (glassmorphism) ---------- */
+#__next form[data-form-type="login"],
+#__next form:has(input[type="password"]) {
+  background: rgba(20, 20, 22, 0.58) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 22px !important;
+  -webkit-backdrop-filter: blur(26px) saturate(150%);
+  backdrop-filter: blur(26px) saturate(150%);
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.65);
+  padding: 2.2rem !important;
+}
+#__next form[data-form-type="login"],
+#__next form:has(input[type="password"])::before {
+  background: radial-gradient(120% 120% at 50% 0%, rgba(229, 9, 20, 0.16) 0%, transparent 62%);
+  border-radius: 22px;
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+#__next form[data-form-type="login"],
+#__next form:has(input[type="password"]) button[type="submit"] {
+  background: var(--hf-red) !important;
+  border-radius: 999px !important;
+  font-weight: 700 !important;
+  height: 3rem;
+  width: 100%;
+}
+#__next form[data-form-type="login"],
+#__next form:has(input[type="password"]) button[type="submit"]:hover {
+  background: var(--hf-red-hover) !important;
+  box-shadow: 0 12px 30px rgba(229, 9, 20, 0.35);
+}
+#__next form[data-form-type="login"],
+#__next form:has(input[type="password"]) input {
+  border-radius: 12px !important;
+  height: 3rem;
+}
+
+/* ---------- Barras de progreso y sliders ---------- */
+[class*="bg-indigo-600"][role="progressbar"],
+progress {
+  accent-color: var(--hf-red);
+}
+progress::-webkit-progress-value { background-color: var(--hf-red) !important; }
+progress::-moz-progress-bar { background-color: var(--hf-red) !important; }
+input[type="range"] { accent-color: var(--hf-red); }
+input[type="checkbox"],
+input[type="radio"] { accent-color: var(--hf-red); }
+
+/* ---------- Enlaces y acentos ---------- */
+#__next a:not([class*="bg-"]):hover { color: #ff6b73; }
+#__next hr { border-color: var(--hf-hairline) !important; }
+
+/* ---------- Tablas de ajustes ---------- */
+#__next table { border-color: var(--hf-hairline) !important; }
+#__next thead { background: rgba(255, 255, 255, 0.03) !important; }
+#__next tr:hover { background: rgba(255, 255, 255, 0.035) !important; }
+
+/* ---------- Scrollbar ---------- */
+* {
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  scrollbar-width: thin;
+}
+::-webkit-scrollbar { height: 10px; width: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(229, 9, 20, 0.65); }
+
+/* ---------- Detalles ---------- */
+#__next img { background-color: transparent; }
+#__next .backdrop-blur,
+#__next [class*="backdrop-blur"] {
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+}
+#__next svg { color: inherit; }
+#__next .spinner,
+#__next [class*="animate-spin"] {
+  border-color: rgba(229, 9, 20, 0.25);
+  border-top-color: var(--hf-red);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #__next a[href^="/movie/"]:hover,
+  #__next a[href^="/tv/"]:hover,
+  button[class*="bg-indigo-"]:hover {
+    transform: none !important;
+  }
+}

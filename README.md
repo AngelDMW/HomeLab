@@ -105,11 +105,13 @@ Radarr y Sonarr comparten tres perfiles con nombres exactos (IDs `7`, `8`, `9`),
 
 | Perfil | Uso | Prioridad de puntuación |
 | :--- | :--- | :--- |
-| `1080p - Español Latino / Dual` | **Predeterminado en Seerr**. Busca 720p/1080p con audio latino, dual o multi. | Latino `+1000`, Dual `+700`, Multi `+500`, Castellano `+300`, subs ES `+100`; solo inglés `-2000`. `minFormatScore -1000`, cutoff `Bluray-1080p` con 500 puntos. |
+| `1080p - Español Latino / Dual` | **Predeterminado en Seerr**. Busca 720p/1080p con audio latino, dual o castellano. | Latino `+1000`, Dual `+700`, Castellano `+800`, subs ES `+100`; Multi `0`; idioma no español en dual/multi `-2500`; solo inglés `-2000`. **`minFormatScore +500`**: el release debe sumar ≥500 o se rechaza. Cutoff `Bluray-1080p` con 500 puntos. |
 | `1080p - Original (Inglés) + Subs ES` | Para quien prefiere audio original y subtítulos en español. | Inglés `+200/+300`, subs ES `+300`, latino `-100`. Idioma de perfil `Original`, cutoff `Remux-1080p`. |
-| `4K / 1080p - Dual / Latino (Máxima Calidad)` | Máxima calidad, incluye 2160p Remux/Bluray/WEB. | Misma prioridad latino/dual; cutoff `Remux-2160p`. |
+| `4K / 1080p - Dual / Latino (Máxima Calidad)` | Máxima calidad, incluye 2160p Remux/Bluray/WEB. | Misma prioridad latino/dual y **`minFormatScore +500`**; cutoff `Remux-2160p`. |
 
-Los Custom Formats creados en ambos Servarr son: `LATINO`, `DUAL`, `MULTI`, `ESPAÑOL (Castellano)`, `SUBTÍTULOS ESPAÑOL`, `AUDIO INGLÉS`, `SOLO INGLÉS (sin español)`, `ES: Audio Español (detectado)` y `EN: Audio Inglés (detectado)`.
+Los Custom Formats creados en ambos Servarr son: `LATINO`, `DUAL`, `MULTI`, `ESPAÑOL (Castellano)`, `SUBTÍTULOS ESPAÑOL`, `AUDIO INGLÉS`, `SOLO INGLÉS (sin español)`, `ES: Audio Español (detectado)`, `EN: Audio Inglés (detectado)` y `IDIOMA NO ESPAÑOL (Dual/MULTI)`. Los CF de “audio detectado” (`ES:`/`EN:`) puntúan `0` porque Radarr los deduce del título y confunden `ES-EN` (subtítulos) con audio español.
+
+> **Regla anti-inglés:** con `minFormatScore +500`, Radarr/Sonarr no descargan un release solo-inglés ni un “dual/multi” en francés, hindi, italiano, etc. (`IDIOMA NO ESPAÑOL` resta `-2500`; `SOLO INGLÉS` resta `-2000` salvo que el título mencione `Esp`/`Spanish`/`Castellano`). Si un título aún no tiene versión latina, la película queda monitoreada y sin archivo hasta que aparezca una válida; no se descarga la versión inglesa por error.
 
 #### Cómo solicitar una película o serie y elegir idioma (Seerr)
 
@@ -122,7 +124,15 @@ Los Custom Formats creados en ambos Servarr son: `LATINO`, `DUAL`, `MULTI`, `ESP
 4. Confirmar la solicitud. Radarr/Sonarr buscan, qBittorrent descarga y el archivo aparece por hardlink en Jellyfin.
 5. Bazarr descarga automáticamente subtítulos latino/español y forzados; Jellyfin los muestra en el selector de subtítulos durante la reproducción.
 
-> El perfil predeterminado de Seerr es `1080p - Español Latino / Dual`; si el usuario no cambia nada, la solicitud sale con esa intención. La disponibilidad real de audio latino depende de los indexadores (Knaben, The Pirate Bay, LimeTorrents, YTS).
+> El perfil predeterminado de Seerr es `1080p - Español Latino / Dual`; si el usuario no cambia nada, la solicitud sale con esa intención.
+
+#### Indexadores y cobertura en español (2026-11-18)
+
+- **Sincronizados en Radarr/Sonarr:** Knaben, The Pirate Bay, LimeTorrents, YTS y `extratorrent-st`; `1337x` pasa por FlareSolverr (tag `flaresolverr`, timeout 90 s). `torrentproject2` queda solo en Prowlarr porque su definición únicamente mapea categoría `Other` y Prowlarr no la sincroniza a las apps.
+- **Proxy:** FlareSolverr `http://flaresolverr:8191` con tag `flaresolverr`; solo los indexers etiquetados lo usan (1337x y extratorrent-st). Si el reto Cloudflare tarda, subir `requestTimeout` a 90–180 s.
+- **Límite práctico:** TPB devuelve como máximo ~100 resultados por búsqueda automática y ordena por seeders; un release latino con 1 seeder puede quedar fuera. En ese caso: buscarlo en Prowlarr (`Search`), copiar el magnet, añadirlo a qBittorrent y hacer **Manual Import** en Radarr/Sonarr. No bajar el `minFormatScore` para forzarlo: descargaría inglés.
+- **Sin indexadores privados:** las definiciones públicas exclusivamente españolas no existen en Prowlarr/Jackett (MejorTorrent/DonTorrent están caídos o son privados). La cobertura latina depende de Knaben, TPB, 1337x y extratorrent.
+- **Caso Batman (2022):** el único release `Dual latino` está en TPB con 1 seeder inactivo; los `SPANiSH` de dem3nt3 (1080p/2160p) no tienen seeds reales. La película quedó monitoreada y sin archivo en perfil Latino: Radarr la descargará sola si aparece una versión sembrada. Para no volver a bajar inglés, **no** bajar `minFormatScore`.
 
 #### Jellyfin — experiencia tipo streaming
 
@@ -130,6 +140,7 @@ Los Custom Formats creados en ambos Servarr son: `LATINO`, `DUAL`, `MULTI`, `ESP
 - **Plugins activos:** Media Bar `3.0.2.0` (hero con backdrop, logo, sinopsis, play y tráilers), File Transformation `3.0.3.0` (requerido por Media Bar), Intro Skipper `12.0.6.0` (detecta intro/créditos y usa Media Segments nativos), TMDb Box Sets `15.0.0.0` (colecciones automáticas).
 - **Metadatos:** bibliotecas `Movies` y `Series` en `es-419` con país `DO`; títulos, sinopsis, géneros, backdrops y logos se piden a TMDb/OMDb en español.
 - **QuickSync:** `HardwareAccelerationType=qsv`, dispositivo `/dev/dri/renderD128`, decodificación `h264`, `hevc` (8-bit), `mpeg2video`, `vc1`; encoding H.264 por hardware. HEVC encode y decodificación 10-bit/VP9 **no** están soportados por la iGPU Skylake y quedan desactivados para evitar fallbacks silenciosos.
+- **Idioma de audio:** el perfil de usuario `Mrdavid` tiene `AudioLanguagePreference=spa` y `PlayDefaultAudioTrack=true`; en archivos duales arranca en español. Como `RememberAudioSelections=true`, si se cambia manualmente la pista en un título, Jellyfin recuerda esa elección por ítem.
 
 ### 3. Asistente Autónomo (ChatOps)
 - **Optiplex Brain 2.1.0** (`docker/telegram-bot`, `network_mode: host`): agente modular en Node.js 18 con polling IPv4-first. Integra telemetría cada 60 s, autorreparación de contenedores, guardián de almacenamiento, bus de eventos multimedia/red, control multi-nodo del Nodo 2 (estado, Wake-on-LAN y apagado) y consola interactiva por Telegram con botones inline y lenguaje natural. Solo responde al `CHAT_ID` autorizado.

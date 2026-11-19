@@ -1,0 +1,16 @@
+services:
+  threadfin:
+    image: fyb3roptik/threadfin:latest
+    container_name: threadfin
+    restart: unless-stopped
+    ports:
+      - "${THREADFIN_PORT:-34400}:34400"
+    environment:
+      - TZ=${TZ:-America/Santo_Domingo}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+    volumes:
+      - ./conf:/home/threadfin/conf
+      - ./temp:/tmp/threadfin
+    mem_limit: 512m
+    cpus: 1.5

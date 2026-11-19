@@ -56,3 +56,8 @@ docker/immich/library/
 docker/immich/postgres/
 docker/immich/backups/
 docker/immich/backup_to_node2.log
+
+# Threadfin runtime state (provider data, EPG cache, auth token)
+docker/threadfin/conf/
+docker/threadfin/temp/
+docker/threadfin/.env

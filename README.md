@@ -1,331 +1,186 @@
-# HomeLab Multi-Nodo — Dell OptiPlex 5040 + Nodo 2
+# Two-Node Hybrid HomeLab Infrastructure
 
-Infraestructura self-hosted de alta disponibilidad sobre Debian Linux 12 y Docker Engine, distribuida en dos nodos: el servidor principal (Dell OptiPlex 5040) y un nodo secundario con GPU para cómputo y almacenamiento. Incluye nube privada, bloqueo y filtrado DNS en red, streaming multimedia automatizado y un agente ChatOps autónomo (Optiplex Brain 2.1.0) con telemetría, autorreparación, control multi-nodo y consola interactiva por Telegram.
+A self-hosted platform that separates always-on services from on-demand compute. Node 1 runs Debian 12 and 17 containers for Nextcloud, Immich, Jellyfin and Pi-hole on a Dell OptiPlex 5040; Node 2 stays off until Wake-on-LAN brings it up for Immich machine learning and cold backups. Remote access goes through a Tailscale tailnet, with no inbound ports exposed to the internet.
 
----
-
-## 🖥️ Especificaciones de Hardware y Red
-
-### Nodo 1 — Dell OptiPlex 5040 (`server`)
-
-| Parámetro | Detalle |
-| :--- | :--- |
-| **Equipo** | Dell OptiPlex 5040 SFF |
-| **Sistema Operativo** | Debian GNU/Linux 12 (Bookworm) x86_64 |
-| **Kernel** | Linux 6.1.0-53-amd64 |
-| **Almacenamiento** | Disco SSD 228 GB (/dev/sda1) | ~78 GB libres (64% en uso) |
-| **Memoria RAM** | 8 GB DDR3L / DDR4 | Swap: 1 GB |
-| **Red Local** | `192.168.1.3/24` fija (LAN4 a 1 Gbps) |
-| **Red Mesh VPN** | Tailscale `100.98.35.64` (alias `homelab`) |
-
-### Nodo 2 — `homeLab-node2`
-
-| Parámetro | Detalle |
-| :--- | :--- |
-| **Equipo** | PC de escritorio AMD FX-8300 |
-| **Sistema Operativo** | Debian GNU/Linux 12 (Bookworm) x86_64 |
-| **Kernel** | Linux 6.1.0-56-amd64 |
-| **CPU** | AMD FX-8300 Eight-Core (8 núcleos) |
-| **Memoria RAM** | 3.8 GiB (~4 GB) |
-| **GPU** | AMD Radeon RX 550 4 GB (Polaris 12) · VA-API con Mesa 22.3.6 |
-| **Sistema** | SSD Kingston SA400S37240G 223.6 GB · ext4 en `/` |
-| **Datos** | HDD Toshiba DT01ABA100V 1 TB · ext4 etiqueta `storage` · `/mnt/storage` |
-| **Red Local** | `192.168.1.4/24` fija en `enp3s0` · MAC `e0:d5:5e:02:70:aa` |
-| **Red Mesh VPN** | Tailscale `100.67.30.11` |
-| **Acceso** | SSH `mrdavid@192.168.1.4` · alias local `homelab-node2` |
-| **Docker** | Docker Engine 29.10.0 · Compose v5.8.0 · usuario `mrdavid` en grupo `docker` |
-| **Wake-on-LAN** | `enp3s0` con `Wake-on: g` persistente (`wol-enp3s0.service`) |
-
-> El HDD Toshiba se monta por **UUID** (`1061ca8e-7ede-4c97-a487-1dcfed351446`) con `nofail`; las letras `/dev/sdX` pueden intercambiarse entre reinicios (en el arranque actual el Kingston es `sda` y el Toshiba `sdb`). No tocar el SSD Kingston: contiene el sistema operativo. La GPU tiene VA-API operativo para H.264 encode/decode, HEVC Main/Main10 decode, JPEG y MPEG-2/VC-1.
-
-### Topología de red
-
-| Elemento | Detalle |
-| :--- | :--- |
-| **Gateway / Router** | ZTE F6201B · `192.168.1.1` · administración `http://192.168.1.1:65080` · DHCP activo (`.5`–`.249`; `.254` excluida para el AP) |
-| **Servidor principal** | `server` · `192.168.1.3/24` fija · MAC `48:4d:7e:f2:5a:a2` · puerto LAN4 a 1 Gbps |
-| **Nodo 2** | `homeLab-node2` · `192.168.1.4/24` fija · MAC `e0:d5:5e:02:70:aa` · `enp3s0` |
-| **DHCP Binding** | Reservas `.3` y `.4` en el ZTE. **El firmware F6201B V9.3.10P4N10B no aplicó las reservas** (verificado); ambos nodos usan IP estática en `/etc/network/interfaces` y el pool dinámico empieza en `.5` para evitar colisiones. |
-| **DHCP DNS** | Primario y secundario `192.168.1.3` (Pi-hole) · ISP DNS desactivado · **IPv6: el RA del ZTE anuncia `fe80::1` como DNS y no es configurable desde la UI; los clientes sin Tailscale pueden fugar consultas por IPv6** |
-| **Pi-hole** | DNS `192.168.1.3:53` TCP/UDP · web `http://192.168.1.3/admin/` · upstream `8.8.8.8`, `8.8.4.4` |
-| **Wi-Fi** | AP Nexxt Amp300 `ARN02304U8` · `192.168.1.254` · bridge, solo 2.4 GHz, canal **6**, **20 MHz**, **WPA2-AES**, WPS y UPnP off · puertos Fast Ethernet (troncal 100 Mbps) · admin y PSK rotados (credenciales en `~/HomeLab-Agent/.env.ap` del equipo de administración, modo 600, fuera del repo) |
-| **Wi-Fi ZTE** | Radio 2.4 GHz **apagado**; 5 GHz activo con canal primario **36**, **160 MHz** (el bloque 36–64 incluye subcanales DFS 52–64), SSID `.I.`, WPA2-AES, PSK compartida con el AP |
-| **Rendimiento** | LAN cableada Nodo2→Nodo1 **~926 Mbps**; Wi-Fi Mac→Nodo1 **~51–65 Mbps** (PHY 144 Mbps); WAN **84 Mbps** con bufferbloat bajo |
-| **Nota .254** | El AP Nexxt no es el router ZTE. Su administración y su PSK se rotaron el **2026-11-18**; las credenciales viven en `~/HomeLab-Agent/.env.ap` del equipo de administración (modo 600, sin versionar). Solo WPA2, sin WPA3. |
-| **Wake-on-LAN** | Nodo 2: magic packet al MAC `e0:d5:5e:02:70:aa`; `Wake-on: g` persistente en `enp3s0` |
-| **Acceso remoto** | Tailscale Serve `https://server.tailbd32c4.ts.net` → qBittorrent `127.0.0.1:8081`, **solo dentro de la tailnet**; Funnel desactivado (sin exposición a internet) |
-
-La configuración de red de ambos nodos está en `/etc/network/interfaces` como IP estática. Pi-hole mantiene su propio DHCP desactivado: el ZTE sigue siendo el servidor DHCP y anuncia a Pi-hole como DNS primario y secundario. El AP Nexxt está en modo bridge (sin DHCP ni NAT propios); su troncal es Fast Ethernet, por lo que el Wi-Fi nunca superará ~100 Mbps aunque el enlace del AP al ZTE negocie 100/Full.
-
-El SSID `.I.` se comparte entre el 5 GHz del ZTE y el 2.4 GHz del AP con la **misma PSK**, de modo que el roaming entre radios no falla por credenciales. Tras la rotación del 2026-11-18, los clientes que conserven la clave anterior deben reconectarse una vez. El 5 GHz quedó con canal primario 36, pero el firmware lo mantiene en 160 MHz: la UI no expone el selector de ancho y el POST con `80MHz` es rechazado, así que **80 MHz no es configurable** en este ZTE. Con 160 MHz el bloque 36–64 incluye los subcanales DFS 52–64, por lo que la radio sigue expuesta a eventos radar aunque el canal primario no sea DFS. La Mac quedó en el AP 2.4 GHz (canal 6, 20 MHz, PHY 144 Mbps) y el cliente 5 GHz `.6` volvió a asociarse en 80 MHz/11ax.
-
-#### Verificación rápida
-
-```bash
-sudo ethtool enp0s31f6 | grep -E "Speed|Duplex"   # 1000Mb/s / Full
-ip -4 -br addr show enp0s31f6                     # solo 192.168.1.3/24
-dig +short @192.168.1.3 github.com
-dig +short @192.168.1.3 doubleclick.net           # 0.0.0.0
-
-ssh homelab-node2 'ip -4 -br addr show enp3s0'    # 192.168.1.4/24
-ssh homelab-node2 'sudo ethtool enp3s0 | grep Wake-on'          # g
-ssh homelab-node2 'findmnt -no SOURCE,TARGET,FSTYPE /mnt/storage'  # ext4
-ssh homelab-node2 'vainfo | grep -E "Driver version|H264High|HEVCMain"'
-```
-
----
-
-## 📦 Inventario de Servicios Docker
-
-### 1. Nube Privada e Infraestructura Base
-- **Nextcloud** (`:8080`): Nube privada personal para sincronización de archivos, galería y respaldos móviles. Volumen de datos dedicado: `nextcloud_nextcloud_data` (~119 GB). Biblioteca de fotos en `/var/lib/docker/volumes/nextcloud_nextcloud_data/_data/data/mrdavid/files/Photos` (~44.071 medios, ~76 GB) expuesta a Immich como External Library **solo lectura**.
-- **Immich** (`:2283`, `docker/immich`, Nodo 1): galería nativa iOS/Web. Stack: `immich-server` (2 GB, `restart: unless-stopped`, QuickSync vía `/dev/dri` para HEVC/MOV), `immich-postgres` con extensión vectorial (768 MB) y `immich-redis`/Valkey (256 MB). Subidas nuevas en `/home/mrdavid/HomeLab/docker/immich/library`; galería histórica de Nextcloud montada **RO** en `/usr/src/app/external/nextcloud-photos:ro` (sin duplicar). Concurrencia moderada de jobs (miniaturas/transcodificación 1 hilo, extracción 2) vía `immich-config.json`. Machine Learning delegado al Nodo 2 (`IMMICH_MACHINE_LEARNING_URL=http://192.168.1.4:3003`); la galería sigue operativa si el ML está apagado.
-- **Pi-hole** (`:53`, `:80`): Servidor DNS sinkhole para bloqueo centralizado de anuncios y telemetría en toda la red doméstica. El DHCP del ZTE anuncia `192.168.1.3` como DNS primario; Pi-hole reenvía a `8.8.8.8`/`8.8.4.4` y mantiene la lista StevenBlack.
-- **Portainer CE** (`:8000`, `:9000`, `:9443`): Panel web de administración y monitoreo de contenedores y volúmenes Docker.
-
-### 2. Stack Multimedia Automatizado (Servarr + Media)
-- **Jellyfin** (`:8096`, `network_mode: host`): Servidor multimedia con **Intel QuickSync (QSV)** activo sobre `/dev/dri/renderD128` (H.264 encode/decode, HEVC 8-bit decode, MPEG-2/VC-1 decode) y rediseño **HomeFlix** (ElegantFin + CSS propio, Home Screen Sections, Jellyfin Enhanced, Media Bar, Intro Skipper y TMDb Box Sets). Metadatos en `es-419`/`DO`.
-- **Threadfin** (`:34400`, `docker/threadfin`): proxy/gestor de TV en vivo para Android TV, **separado de Jellyfin**. Imagen `fyb3roptik/threadfin:latest`, `restart: unless-stopped`, límite `512 MB` / `1.5 CPU`, TZ `America/Santo_Domingo`. Volúmenes persistentes: `./conf` → `/home/threadfin/conf` y `./temp` → `/tmp/threadfin`. EPG en modo `XEPG`, buffer `ffmpeg` habilitado (global y por playlist).
-  - **Playlists fuente:** República Dominicana `https://iptv-org.github.io/iptv/countries/do.m3u` (262 streams) y Español `https://iptv-org.github.io/iptv/languages/spa.m3u` (2441 streams).
-  - **EPG XMLTV:** `https://raw.githubusercontent.com/davidmuma/EPG_dobleM/master/guiatv.xml.gz` (DobleM, español), asociada vía `url-tvg`.
-  - **URLs para Android TV:** M3U `http://192.168.1.3:34400/m3u/threadfin.m3u` · XMLTV `http://192.168.1.3:34400/xmltv/threadfin.xml`.
-  - **Curaduría activa (45 canales, verificados vivos desde Nodo 1 con `curl` timeout 5s el 2026-11-18):** 20 `República Dominicana` (1–20) + 25 `Internacionales` en español (21–45), nombres limpios, numeración secuencial desde 1. `Digital 15` excluido (403 en probe).
-  - **Activación (alternativa controlada):** la activación automática XEPG no persistió en Threadfin 1.2.37 (cleanup regeneraba `xepg.json` vacío/0 canales). Se sirven salidas curadas canónicas (`conf/data/curated.m3u|.xml|.xml.gz`) aplicadas a `threadfin.m3u|.xml|.xml.gz` con `/home/mrdavid/HomeLab/docker/threadfin/apply_curated.sh`.
-  - **Implicación de actualización:** Threadfin regenera las salidas en cada arranque/ciclo XEPG. Tras reiniciar el contenedor o una actualización XEPG, ejecutar `ssh homelab 'bash /home/mrdavid/HomeLab/docker/threadfin/apply_curated.sh'` para restaurar la curaduría. La M3U curada usa URLs directas de origen (los endpoints M3U/XMLTV quedan operativos; buffer ffmpeg de Threadfin aplica en modo proxy/stream). Fuentes/EPG originales permanecen en `conf/data/` para re-curar. Backup conf previo: `/home/mrdavid/backups-compose/20261118_121126_threadfin_conf/conf`.
-- **Seerr / Jellyseerr** (`:5055` → `seerr-theme`): Portal de descubrimiento y solicitudes con identidad **HomeFlix**. Un proxy `nginx:alpine` atiende `:5055` e inyecta `custom-theme.css`; Seerr queda interno en `127.0.0.1:5056`.
-- **Radarr** (`:7878`): Automatización, búsqueda y gestión de películas.
-- **Sonarr** (`:8989`): Automatización, búsqueda y gestión de series de TV.
-- **Bazarr** (`:6767`, `lscr.io/linuxserver/bazarr:latest`): Subtítulos automáticos multi-idioma. Perfil activo **“Español Latino + Español + Forzados”** (`ea`, `es`, `ea:forced`). Sincronizado con Radarr y Sonarr; proveedores sin autenticación: `argenteam`, `subscenter`, `subtitulamostv`, `subs4free`, `subs4series`, `podnapisi`, `subf2m`, `yifysubtitles`, `tvsubtitles`, `addic7ed`, `subtitlecat`, `supersubtitles`. Los subtítulos se guardan junto al video (`<archivo>.<idioma>.srt`).
-- **Prowlarr** (`:9696`): Administrador e integrador de indexadores de torrents.
-- **FlareSolverr** (`:8191`): Servidor proxy para elusión de protecciones Cloudflare anti-bot en indexadores.
-- **qBittorrent** (`:8081` WebUI, `:6881` Peers): Cliente BitTorrent optimizado con interfaz web.
-
-#### Perfiles de idioma y calidad (2026-11-18)
-
-Radarr y Sonarr comparten tres perfiles con nombres exactos (IDs `7`, `8`, `9`), cada uno con Custom Formats por título de release y por idioma detectado:
-
-| Perfil | Uso | Prioridad de puntuación |
-| :--- | :--- | :--- |
-| `1080p - Español Latino / Dual` | **Predeterminado en Seerr**. Busca 720p/1080p con audio latino, dual o castellano. | Latino `+1000`, Dual `+700`, Castellano `+800`, subs ES `+100`; Multi `0`; idioma no español en dual/multi `-2500`; solo inglés `-2000`. **`minFormatScore +500`**: el release debe sumar ≥500 o se rechaza. Cutoff `Bluray-1080p` con 500 puntos. |
-| `1080p - Original (Inglés) + Subs ES` | Para quien prefiere audio original y subtítulos en español. | Inglés `+200/+300`, subs ES `+300`, latino `-100`. Idioma de perfil `Original`, cutoff `Remux-1080p`. |
-| `4K / 1080p - Dual / Latino (Máxima Calidad)` | Máxima calidad, incluye 2160p Remux/Bluray/WEB. | Misma prioridad latino/dual y **`minFormatScore +500`**; cutoff `Remux-2160p`. |
-
-Los Custom Formats creados en ambos Servarr son: `LATINO`, `DUAL`, `MULTI`, `ESPAÑOL (Castellano)`, `SUBTÍTULOS ESPAÑOL`, `AUDIO INGLÉS`, `SOLO INGLÉS (sin español)`, `ES: Audio Español (detectado)`, `EN: Audio Inglés (detectado)` y `IDIOMA NO ESPAÑOL (Dual/MULTI)`. Los CF de “audio detectado” (`ES:`/`EN:`) puntúan `0` porque Radarr los deduce del título y confunden `ES-EN` (subtítulos) con audio español.
-
-> **Regla anti-inglés:** con `minFormatScore +500`, Radarr/Sonarr no descargan un release solo-inglés ni un “dual/multi” en francés, hindi, italiano, etc. (`IDIOMA NO ESPAÑOL` resta `-2500`; `SOLO INGLÉS` resta `-2000` salvo que el título mencione `Esp`/`Spanish`/`Castellano`). Si un título aún no tiene versión latina, la película queda monitoreada y sin archivo hasta que aparezca una válida; no se descarga la versión inglesa por error.
-
-#### Cómo solicitar una película o serie y elegir idioma (Seerr)
-
-1. Entrar a **http://192.168.1.3:5055** e iniciar sesión.
-2. Buscar el título y abrir su ficha; pulsar **Solicitar**.
-3. En el desplegable **Perfil de calidad** elegir:
-   - **`1080p - Español Latino / Dual`** → audio latino/dual (recomendado para ver doblado).
-   - **`1080p - Original (Inglés) + Subs ES`** → audio original + subtítulos en español (Bazarr los descarga).
-   - **`4K / 1080p - Dual / Latino (Máxima Calidad)`** → mejor calidad disponible, incluye 4K.
-4. Confirmar la solicitud. Radarr/Sonarr buscan, qBittorrent descarga y el archivo aparece por hardlink en Jellyfin.
-5. Bazarr descarga automáticamente subtítulos latino/español y forzados; Jellyfin los muestra en el selector de subtítulos durante la reproducción.
-
-> El perfil predeterminado de Seerr es `1080p - Español Latino / Dual`; si el usuario no cambia nada, la solicitud sale con esa intención.
-
-#### Indexadores y cobertura en español (2026-11-18)
-
-- **Sincronizados en Radarr/Sonarr:** Knaben, The Pirate Bay, LimeTorrents, YTS y `extratorrent-st`; `1337x` pasa por FlareSolverr (tag `flaresolverr`, timeout 90 s). `torrentproject2` queda solo en Prowlarr porque su definición únicamente mapea categoría `Other` y Prowlarr no la sincroniza a las apps.
-- **Proxy:** FlareSolverr `http://flaresolverr:8191` con tag `flaresolverr`; solo los indexers etiquetados lo usan (1337x y extratorrent-st). Si el reto Cloudflare tarda, subir `requestTimeout` a 90–180 s.
-- **Límite práctico:** TPB devuelve como máximo ~100 resultados por búsqueda automática y ordena por seeders; un release latino con 1 seeder puede quedar fuera. En ese caso: buscarlo en Prowlarr (`Search`), copiar el magnet, añadirlo a qBittorrent y hacer **Manual Import** en Radarr/Sonarr. No bajar el `minFormatScore` para forzarlo: descargaría inglés.
-- **Sin indexadores privados:** las definiciones públicas exclusivamente españolas no existen en Prowlarr/Jackett (MejorTorrent/DonTorrent están caídos o son privados). La cobertura latina depende de Knaben, TPB, 1337x y extratorrent.
-- **Caso Batman (2022):** el único release `Dual latino` está en TPB con 1 seeder inactivo; los `SPANiSH` de dem3nt3 (1080p/2160p) no tienen seeds reales. La película quedó monitoreada y sin archivo en perfil Latino: Radarr la descargará sola si aparece una versión sembrada. Para no volver a bajar inglés, **no** bajar `minFormatScore`.
-
-#### Jellyfin — experiencia tipo streaming (rediseño HomeFlix, 2026-11-18)
-
-- **Tema:** ElegantFin + companion para el layout Modern de Jellyfin 12 + soporte de Media Bar, más una capa propia de ~18 KB aplicada en `branding.xml` (SCSS/SQLite no se tocan). Fondo `#0b0b0d`, header flotante con `backdrop-filter: blur(16px)`, acentos **rojo Netflix `#E50914`** (hover `#f40612`), barras de progreso rojas, tarjetas de 12 px con hover `scale(1.04)`, login *glassmorphism* y tipografía Inter.
-- **Media Bar (hero):** carrusel al **68 % de la altura de pantalla** (`68vh`), degradado inferior que funde con `#0b0b0d` para que las filas nazcan desde abajo, `ClearLogo` nítido con sombra, sinopsis limitada a **3 líneas** y botones estilo Netflix: principal blanco sólido con texto negro, secundario `rgba(109,109,110,0.7)`.
-- **Filas dinámicas (Home Screen Sections `3.0.4.0`, `targetAbi 12.4.0.0`):** activo con carga perezosa de 3 filas por página. Configuradas 8: `ContinueWatching`, `RecentlyAddedMovies`, `RecentlyAddedShows`, `Collections`, `BecauseYouWatched`, `WatchAgain`, `DiscoverMovies` y `DiscoverTV`. Las dos Discover consumen Seerr (`http://127.0.0.1:5055`) y las Upcoming pueden usar Radarr/Sonarr; `Collections` y `BecauseYouWatched` aparecen cuando hay colecciones o historial. **HSS no ofrece una sección “Mejor valoradas”**: el hueco de fila destacada se cubre con Discover + Watch Again.
-- **Jellyfin Enhanced `12.16.0.0`:** etiquetas de puntuación en pósters/fichas (TMDb vía `CommunityRating`), badges de estado (*Nuevo*, *Tendencia*, *Hitos*), banderas de idioma de audio y estilos de etiqueta en esquinas. IMDb puro requiere clave de **MDBList u OMDb** (ninguna configurada todavía).
-- **Plugins base:** Media Bar `3.0.2.0` (hero con backdrop, logo, sinopsis, play y tráilers), File Transformation `3.0.3.0` (requerido por Media Bar y por la inyección de HSS/Enhanced), Intro Skipper `12.0.6.0` (detecta intro/créditos y usa Media Segments nativos), TMDb Box Sets `15.0.0.0` (colecciones automáticas).
-- **Configuración por API** (Jellyfin 12): branding con `POST /System/Configuration/Branding` (`CustomCss`), plugins con `POST /Plugins/{guid}/Configuration` y filas con `GET/POST /HomeScreen/Configuration` (lectura) + `POST /Plugins/b8298e01-2697-407a-b44d-aa8dc795e850/Configuration` (escritura).
-- **Nota:** las anulaciones de filas por usuario requieren el plugin **PluginPages** (no instalado); las filas funcionan igual a nivel de servidor.
-- **Metadatos:** bibliotecas `Movies` y `Series` en `es-419` con país `DO`; títulos, sinopsis, géneros, backdrops y logos se piden a TMDb/OMDb en español.
-- **QuickSync:** `HardwareAccelerationType=qsv`, dispositivo `/dev/dri/renderD128`, decodificación `h264`, `hevc` (8-bit), `mpeg2video`, `vc1`; encoding H.264 por hardware. HEVC encode y decodificación 10-bit/VP9 **no** están soportados por la iGPU Skylake y quedan desactivados para evitar fallbacks silenciosos.
-- **Idioma de audio:** el perfil de usuario `Mrdavid` tiene `AudioLanguagePreference=spa` y `PlayDefaultAudioTrack=true`; en archivos duales arranca en español. Como `RememberAudioSelections=true`, si se cambia manualmente la pista en un título, Jellyfin recuerda esa elección por ítem.
-- **Respaldo del rediseño:** `/home/mrdavid/backups-compose/20261118_185649_netflix_ui/` (branding, system.xml, plugins completos, compose y settings de Seerr).
-
-#### Seerr — HomeFlix con proxy inyector
-
-Seerr no se modifica a nivel de imagen: el tema se inyecta en el HTML con `sub_filter` de nginx, así que **sobrevive a `docker compose pull`**.
+## System Architecture
 
 ```text
-:5055  →  seerr-theme (nginx:alpine, mem_limit 32m)
-             ├─ /custom-theme.css  (volumen local, text/css, no-cache)
-             └─ proxy_pass → jellyseerr:5055   (solo 127.0.0.1:5056 en el host)
+                        iOS / macOS / Android TV
+                         |                    |
+            LAN 192.168.1.0/24      Tailscale 100.64.0.0/10
+                         |                    |
+                         v                    v
++----------------------------------+   +----------------------------------+
+| Node 1: server                   |   | Node 2: homelab-node2            |
+| Dell OptiPlex 5040               |   | AMD FX-8300, 8 cores             |
+| 192.168.1.3 / 100.98.35.64       |   | 192.168.1.4 / 100.67.30.11       |
+| always on                        |   | on demand, Wake-on-LAN           |
+|                                  |   |                                  |
+| Pi-hole             :53, :80     |   | immich-machine-learning   :3003  |
+| Nextcloud           :8080        |   | portainer_agent           :9001  |
+| Immich              :2283        |   |                                  |
+| Jellyfin            :8096 (host) |   | /mnt/storage (1 TB HDD, ext4)    |
+| qBittorrent     :8081, :6881     |   |   immich-ml-cache/               |
+| Radarr / Sonarr  :7878 / :8989   |   |   backups/immich/                |
+| Prowlarr / Bazarr :9696 / :6767  |   |                                  |
+| FlareSolverr        :8191        |   | 223.6 GB Kingston SSD: OS only   |
+| Threadfin           :34400       |   |                                  |
+| Portainer        :9443, :8000    |   |                                  |
+|                                  |   |                                  |
+| seerr-theme         :5055        |   |                                  |
+|   nginx -> jellyseerr:5055       |   |                                  |
+|   loopback 127.0.0.1:5056        |   |                                  |
+|                                  |   |                                  |
+| volumes:                         |   |                                  |
+|   nextcloud_nextcloud_data       |   |                                  |
+|     -> Immich external :ro       |   |                                  |
+|   /home/mrdavid/HomeLab/media    |   |                                  |
+|     -> /media, hardlinked        |   |                                  |
++----------------+-----------------+   +----------------+-----------------+
+                 |                                      ^
+                 | SSH, rsync, Immich ML                | Wake-on-LAN
+                 +--------------------------------------+ magic packet
 ```
 
-- **Archivos:** `docker/media-stack/seerr-theme/conf/default.conf` y `docker/media-stack/seerr-theme/html/custom-theme.css` (montados por **directorio**, no por archivo, para que editar no rompa el bind mount).
-- **Inyección:** `proxy_set_header Accept-Encoding ""` + `sub_filter '</head>' '<link rel="stylesheet" href="/custom-theme.css">...'` con `sub_filter_once off`; `Host $http_host` y `X-Forwarded-*` conservan puerto y esquema. `Connection` usa un `map $http_upgrade` para websockets.
-- **Estética:** elimina el azulado `#111827` y el índigo `#6366f1`/`#4f46e5`; fondo `#0b0b0d`, tarjetas/modales `#141416` con borde `rgba(255,255,255,.08)`, sidebar y barra superior con `blur(16px)`, botones/acentos en rojo Netflix, tarjetas a 12 px con `scale(1.03)`, *Disponible* en verde esmeralda `#10b981` y *Solicitado* en ámbar `#f59e0b`, login en vidrio esmerilado.
-- **Branding:** `applicationTitle` = **HomeFlix** (persistido en `jellyseerr/settings.json`).
-- **Aplicar cambios:** editar el CSS y recargar el proxy sin recrear nada:
+LAN clients connect to the static addresses on Node 1. Tailscale clients use the 100.x addresses from anywhere. `tailscale serve` publishes qBittorrent at `https://server.tailbd32c4.ts.net` to the tailnet only; Funnel is disabled. Node 2 has no route from the internet and no published service that Node 1 depends on for core operation.
 
-```bash
-ssh homelab "docker exec seerr-theme nginx -s reload"
-```
+## Hardware & Workload Placement
 
-- **Verificación:** `curl -I http://192.168.1.3:5055/custom-theme.css` (200, `text/css`) y comprobar que `/login` incluye una referencia a `custom-theme.css`.
-- **Puertos:** `jellyseerr` ya **no** publica `5055` en la LAN; solo `127.0.0.1:5056` para diagnóstico. No volver a mapear `5055:5055` en `jellyseerr` o el proxy no arrancará por conflicto de puerto.
+| | Node 1: server | Node 2: homelab-node2 |
+|---|---|---|
+| Role | Always-on control plane, private cloud, media and DNS | On-demand machine learning and cold storage |
+| Hardware | Dell OptiPlex 5040 SFF | Custom AMD desktop |
+| CPU | Intel Core i5-6500, 4C/4T, 3.2 GHz, Skylake | AMD FX-8300, 8 cores |
+| Memory | 8 GB (7.6 GiB usable), 1 GB swap | 3.8 GiB |
+| Graphics | Intel HD 530, QuickSync on `/dev/dri/renderD128` | Radeon RX 550 4 GB, Mesa 22.3.6 VA-API |
+| Storage | 228 GB SSD, ext4; 56 GB free at audit | 223.6 GB Kingston SSD for the OS, 1 TB Toshiba HDD for data (916 GB usable, 868 GB free) |
+| Network | 1 GbE, `192.168.1.3/24` | 1 GbE, `192.168.1.4/24` |
+| OS | Debian 12, kernel 6.1.0-53-amd64 | Debian 12, kernel 6.1.0-56-amd64, Docker 29.10.0, Compose 5.8.0 |
+| Power | 24/7 | On demand, `Wake-on: g` on `enp3s0` |
+| Workloads | Nextcloud, Immich server, PostgreSQL and Valkey, Pi-hole, Jellyfin, the Servarr stack, Threadfin, Seerr, Portainer, ChatOps bot | `immich-machine-learning`, `portainer_agent`, ML model cache and the backup target |
 
-### 3. Asistente Autónomo (ChatOps)
-- **Optiplex Brain 2.1.0** (`docker/telegram-bot`, `network_mode: host`): agente modular en Node.js 18 con polling IPv4-first. Integra telemetría cada 60 s, autorreparación de contenedores, guardián de almacenamiento, bus de eventos multimedia/red, control multi-nodo del Nodo 2 (estado, Wake-on-LAN y apagado) y consola interactiva por Telegram con botones inline y lenguaje natural. Solo responde al `CHAT_ID` autorizado.
+Node 1 has 7.6 GiB usable and currently uses 4.4 GiB across 17 containers. Immich server alone reached 1.55 GiB during indexing. A 2.5 GiB machine-learning worker on the same host would leave under 1 GiB of headroom and force page-cache reclaim under indexing load. Node 2 has 3.8 GiB and a GPU that exposes VA-API, so it takes the ML container and the backup disk. The split also keeps DNS, Nextcloud and Jellyfin available when Node 2 is off.
 
-### 4. Nodo 2 — Cómputo auxiliar y respaldo
-- **Docker Engine 29.10.0 + Compose v5.8.0** instalados y activos.
-- **Portainer Agent** (`:9001`, `portainer_agent`): agente desplegado manualmente para gestión remota del Nodo 2 desde Portainer CE del Nodo 1.
-- **Immich Machine Learning** (`:3003`, `docker/immich-ml`, `immich-machine-learning`, 2560 MB, 6 CPU): reconocimiento facial y búsqueda inteligente para Immich; caché de modelos en `/mnt/storage/immich-ml-cache` (HDD Toshiba). Operación bajo demanda (puede apagarse cuando el Nodo 2 no está disponible).
-- **Respaldo Immich**: destino `/mnt/storage/backups/immich/` (library + dumps de DB) sincronizado desde Nodo 1.
-- **GPU RX 550** con VA-API (H.264 encode/decode, HEVC Main/Main10 decode, JPEG, MPEG-2/VC-1).
-- **HDD Toshiba 1 TB** (`/mnt/storage`, ext4, UUID) para datos/modelos/backups; el SSD Kingston queda reservado al sistema operativo.
+Node 2 is a capacity and storage tier, not a standby cluster. There is no automatic failover for Pi-hole, Nextcloud or the media stack. A Node 1 disk failure is a restore-from-backup event, not a cluster election.
 
----
+## Core Engineering Highlights
 
-## 📂 Arquitectura de Carpetas y Volúmenes
+### Zero-Trust Networking & DNS Sinkholing
+
+The ZTE F6201B at `192.168.1.1` is the only DHCP and NAT device. The Nexxt Amp300 at `192.168.1.254` is a bridge on 2.4 GHz, channel 6, 20 MHz, so it adds no second DHCP scope. Both servers set static addresses in `/etc/network/interfaces`. The ZTE ignored the `.3` and `.4` reservations, and the DHCP pool starts at `.5`, so a lease cannot collide with either node.
+
+Pi-hole v6 answers DNS on `192.168.1.3:53` over TCP and UDP and serves its admin UI on `:80`. The ZTE advertises only Pi-hole to LAN clients, with `8.8.8.8` and `8.8.4.4` as upstreams. The StevenBlack list blocks about 77,000 domains and returns `0.0.0.0` for sinkholed names. IPv4 filtering is complete. The ZTE router advertisement still hands out `fe80::1` as IPv6 DNS and the UI has no field to change it, so clients that bypass Tailscale can escape Pi-hole over IPv6. That is a known gap, not a hidden one.
+
+Tailscale links Node 1, Node 2, an iPhone and a MacBook. Funnel is disabled. `tailscale serve --bg http://127.0.0.1:8081` publishes qBittorrent at `https://server.tailbd32c4.ts.net` to the tailnet only. No router port is forwarded. SSH, Jellyfin, Nextcloud, Immich and Portainer stay on LAN or tailnet addresses.
+
+### Zero-Duplication Storage & Distributed ML (Immich + Nextcloud)
+
+Nextcloud runs from the `nextcloud_nextcloud_data` volume, about 119 GB. The user tree holds 30,142 files (99.7 GiB). Immich's library tracks 20,600 media assets (65.6 GiB), most of them from that tree. A further 4,861 preview files add 11 GB in the appdata cache, which puts photos, video and thumbnails at roughly 76 GB. The `Photos` directory is bind-mounted read-only into Immich at `/usr/src/app/external/nextcloud-photos:ro` and registered as an external library. The originals never enter Immich's upload volume, so the SSD does not hold a second copy.
+
+Immich server has a 2 GB and 2 CPU limit. PostgreSQL runs the vectorchord and pgvectors image with 768 MB and one CPU; Valkey gets 256 MB and half a CPU. `immich-config.json` caps thumbnail and video jobs at one worker, face and smart-search jobs at one, and metadata extraction at two. That keeps the 4-core host responsive during a first scan.
+
+Machine learning runs on Node 2. `immich-machine-learning` gets 2560 MB and 6 CPUs, caches models in `/mnt/storage/immich-ml-cache` (1.7 GB at audit), and answers on `:3003`. The Immich server points at `http://192.168.1.4:3003`. When Node 2 is off, browsing, uploads and the API stay up; only ML jobs wait. That failure mode is deliberate.
+
+### Hardware-Accelerated Media Pipeline & Language Scoring
+
+qBittorrent, Radarr, Sonarr, Bazarr and Jellyfin bind the same host directory, `/home/mrdavid/HomeLab/media`, at `/media`. Downloads land in `/media/descargas`; Radarr and Sonarr create atomic hardlinks in `/media/peliculas` and `/media/series`. The inode is shared, so seeding continues while Jellyfin reads the library and the SSD does not store two copies. This only works because every container sees one filesystem, not separate bind mounts per app.
+
+Radarr and Sonarr expose three quality profiles (IDs 7, 8 and 9). The default for Seerr is `1080p - Español Latino / Dual`, with `minFormatScore` set to `+500`. Custom Formats award Latino `+1000`, Dual `+700`, Castellano `+800` and Spanish subtitles `+100`. A non-Spanish dual or multi release loses 2500 points; an English-only release loses 2000. A release that cannot reach `+500` is rejected. The rule is blunt on purpose: a missing Spanish release stays monitored instead of silently downloading an English file.
+
+Jellyfin runs with host networking and `/dev/dri`, with `HardwareAccelerationType=qsv` on `/dev/dri/renderD128`. Skylake QuickSync handles H.264 encode and decode, HEVC 8-bit decode, MPEG-2 and VC-1. HEVC encode and 10-bit decode are disabled because the iGPU does not support them; leaving them on would cause silent software fallbacks. Library metadata uses `es-419` for Dominican Spanish.
+
+Threadfin runs on `:34400` with a 512 MB and 1.5 CPU limit. It merges two public iptv-org playlists with the DobleM XMLTV guide, uses XEPG and an ffmpeg buffer, and serves 45 curated channels: 20 Dominican and 25 Spanish-language international. `apply_curated.sh` restores the curated M3U and XML after a restart or XEPG cycle. No provider credential or private stream URL is stored in the repository.
+
+### Non-Invasive Reverse Proxy UI Customization
+
+Seerr's official image is not patched. A 32 MB `nginx:alpine` container named `seerr-theme` listens on `:5055` and proxies to `jellyseerr:5055` over the Docker network. Seerr itself publishes only `127.0.0.1:5056` on the host. Nginx clears `Accept-Encoding`, sets `sub_filter_once off`, and injects an 11.5 KB stylesheet before `</head>`. A `map` handles websocket upgrades; `X-Forwarded-*` headers preserve host, port and scheme.
+
+Steady-state RSS is 5.5 to 5.6 MiB, well under the 32 MB cap. The container peaked at 14.8 MiB during startup. `docker compose pull` replaces Seerr without touching the theme. The CSS lives in `docker/media-stack/seerr-theme/html` and is mounted as a directory, so editing it and reloading Nginx is enough.
+
+`5055` is the only Seerr entry point on the LAN. `5056` is loopback for diagnostics. Mapping `5055` on the Seerr container would make the proxy fail to bind, so that mapping stays out of the compose file.
+
+### Fault-Tolerant Cross-Node Backup Automation
+
+`scripts/backup_immich_to_node2.sh` runs from cron at 03:30. It opens SSH with `BatchMode=yes`, `ConnectTimeout=8` and the dedicated `node2_bot` key. If Node 2 is off, the probe fails and the script exits 0, leaving no failed cron mail and no partial dump. If Node 2 answers, it runs `pg_dump` on `immich-postgres`, gzips the dump (26 MB at audit), keeps seven days locally, and rsyncs the Immich upload library plus the dumps to `/mnt/storage/backups/immich/{library,db}`.
+
+The local Immich library held about 7 GB across 2,300 files during the audit, so the script uses `rsync -a` for an incremental copy instead of a full transfer every night. The first end-to-end run on 2026-11-18 mirrored 7.4 GB and a 26 MB database dump to the HDD. The database dump is transactionally consistent; the file copy is incremental and may pick up an upload that is still being written. The next run corrects it. Node 2 mounts the 1 TB Toshiba HDD by UUID with `nofail`, and the Kingston SSD holds only the OS. The backup target is the HDD.
+
+Wake-on-LAN is enabled with `Wake-on: g` on `enp3s0`. The ChatOps bot sends a magic packet to the broadcast address before a maintenance window, and the same node can be powered off after the copy finishes.
+
+### Unified Multi-Node Container Management
+
+Portainer CE on Node 1 binds the local Docker socket and serves its UI on `:9443` (HTTPS). The compose file also publishes `:8000` for edge agents. Node 2 runs `portainer_agent` on `:9001`. One Portainer UI manages both endpoints, including the on-demand ML container.
+
+Compose files are the IaC layer: one directory per stack, one `docker-compose.yml` per service group, and no manual `docker run` in normal operation. Portainer is the operating console, not a second configuration store.
+
+Node 2 has no Swarm and no permanent application stack. Its only containers are the Portainer agent and, when the node is awake, Immich ML. `docker compose stop` on Node 2 releases the 2.5 GB ML reservation without touching Node 1.
+
+## Repository Layout & Deployment Standards
 
 ```text
-/home/mrdavid/HomeLab/
+HomeLab/
 ├── docker/
-│   ├── media-stack/          # Stack Radarr, Sonarr, Bazarr, Prowlarr, qBittorrent, Seerr, Flaresolverr
+│   ├── immich/                   Immich server, PostgreSQL and Valkey
 │   │   ├── docker-compose.yml
-│   │   ├── bazarr/           # Config/DB de Bazarr (perfil es-419 + es + forzados)
-│   │   ├── jellyseerr/       # Config/DB de Seerr (ignorado por git)
-│   │   ├── seerr-theme/      # Proxy nginx + tema HomeFlix (conf/default.conf, html/custom-theme.css)
-│   │   └── .env.example
-│   ├── jellyfin/             # Servidor multimedia Jellyfin (host networking + QSV)
-│   │   ├── docker-compose.yml
-│   │   └── config/           # Configuración, plugins y DB de Jellyfin (ignorado por git)
-│   ├── threadfin/            # TV en vivo (Threadfin) separada de Jellyfin
-│   │   ├── docker-compose.yml
-│   │   ├── conf/             # Configuración y base Threadfin (persistente)
-│   │   └── temp/             # Caché/buffer temporal
-│   ├── immich/               # Immich (Nodo 1): server + Postgres vectorial + Redis/Valkey
-│   │   ├── docker-compose.yml
-│   │   ├── immich-config.json # Concurrencia moderada de jobs
+│   │   ├── immich-config.json
 │   │   ├── .env.example
-│   │   ├── library/          # Subidas nuevas (ignorado por git)
-│   │   └── postgres/         # Datos Postgres (ignorado por git)
-│   ├── immich-ml/            # Espejo IaC de Immich Machine Learning (desplegado en Nodo 2)
+│   │   └── .gitignore
+│   ├── immich-ml/                Node 2 machine-learning worker
 │   │   ├── docker-compose.yml
 │   │   ├── .env.example
 │   │   └── README.md
-│   ├── telegram-bot/         # Optiplex Brain (agente autónomo ChatOps)
-│   │   ├── Dockerfile
-│   │   ├── bot.js            # Entrada, comandos, callbacks y autocontrol
-│   │   ├── config.js         # Configuración y umbrales desde .env
-│   │   ├── lib/              # HTTP, formato, logger y estado persistente
-│   │   ├── modules/          # Telemetría, Docker, Servarr, qBittorrent, Nodo 2, guardianes
-│   │   ├── data/             # Estado runtime (ignorado por git)
-│   │   ├── package.json
-│   │   ├── docker-compose.yml
-│   │   └── .env.example
-│   ├── pihole/               # Definición IaC de Pi-hole
-│   │   ├── docker-compose.yml
-│   │   └── .env.example
-│   ├── nextcloud/            # Definición IaC de Nextcloud
+│   ├── jellyfin/                 Host-network Jellyfin with QuickSync
 │   │   └── docker-compose.yml
-│   └── portainer/            # Definición IaC de Portainer CE
-│       └── docker-compose.yml
+│   ├── media-stack/              Servarr, qBittorrent, Seerr and the Nginx theme proxy
+│   │   ├── docker-compose.yml
+│   │   ├── .env.example
+│   │   └── seerr-theme/
+│   │       ├── conf/default.conf
+│   │       └── html/custom-theme.css
+│   ├── nextcloud/                Nextcloud and its external volume
+│   │   └── docker-compose.yml
+│   ├── pihole/                   DNS sinkhole
+│   │   ├── docker-compose.yml
+│   │   └── .env.example
+│   ├── portainer/                Docker management UI
+│   │   └── docker-compose.yml
+│   ├── telegram-bot/             ChatOps agent
+│   │   ├── bot.js
+│   │   ├── config.js
+│   │   ├── Dockerfile
+│   │   ├── package.json
+│   │   ├── lib/
+│   │   ├── modules/
+│   │   ├── docker-compose.yml
+│   │   └── .env.example
+│   └── threadfin/                Live TV proxy and curation script
+│       ├── docker-compose.yml
+│       ├── .env.example
+│       ├── apply_curated.sh
+│       └── README.md
 ├── scripts/
-│   └── backup_immich_to_node2.sh # Dump Postgres + rsync library al Nodo 2 si está encendido (cron diario)
-├── media/                    # Almacenamiento raíz compartido (Host: /home/mrdavid/HomeLab/media -> Contenedor: /media)
-│   ├── descargas/            # Torrents activos e incompletos de qBittorrent
-│   ├── peliculas/            # Librería final de películas (Radarr)
-│   └── series/               # Librería final de series (Sonarr)
-├── docs/                     # Diagramas y documentación arquitectónica
-├── .gitignore                # Reglas estrictas de exclusión de datos y secretos
-├── GEMINI.md                 # Contexto y directrices operativas del Agente de IA
-└── README.md                 # Documentación técnica del repositorio
+│   └── backup_immich_to_node2.sh
+├── media/                        Host media path, excluded from Git
+├── docs/
+├── .gitignore
+├── GEMINI.md                     Operational notes for the local agent
+└── README.md
 ```
 
----
+Deployment rules:
 
-## 🧠 Optiplex Brain — Agente Autónomo
+- Every change to a compose file or shared configuration starts with a timestamped copy under `/home/mrdavid/backups-compose/`. Rollback is a file copy, not a rebuild.
+- Memory and CPU limits are explicit on containers that can grow: Immich 2 GB and 2 CPUs, PostgreSQL 768 MB and 1 CPU, Valkey 256 MB and 0.5 CPU, Immich ML 2560 MB and 6 CPUs, Threadfin 512 MB and 1.5 CPUs, Nginx 32 MB. Jellyfin and the bot run without hard caps because they need host devices or host networking.
+- Secrets live in `.env` files excluded by Git. `.env.example` files contain placeholders only. No database, config directory, media file, model cache, playlist, EPG dump or log is tracked.
+- Scripts use `set -euo pipefail`, log through `logger` and stdout, and return a non-zero status only when an operation that should have completed did not.
+- Node 2 uses UUID mounts and never writes to the Kingston system SSD. The Toshiba HDD is the only data disk.
+- Remote access has no inbound port forwards. Tailscale Funnel is disabled; Serve is tailnet-only.
+- A history scan for `.env` files, private keys and common token formats returned no tracked secret. Threadfin playlists and EPG data stay in `conf/`, outside Git.
 
-El contenedor `optiplex-chatops` dejó de ser un bot de comandos y ahora es un ecosistema modular de vigilancia y operación.
-
-### Motores internos
-
-| Motor | Función | Frecuencia |
-| :--- | :--- | :--- |
-| **Telemetry & Heartbeat** | CPU, temperatura (`Package id 0`), RAM, carga, uptime, red/Tailscale y disco | Bajo demanda y muestreo cada 60 s |
-| **Self-Healing** | Detecta contenedores `exited`/`unhealthy`, reinicia hasta 2 veces, espera 20 s, verifica estado y puerto, y alerta con los últimos 15 logs si persiste | 60 s |
-| **Torrent Sentinel** | Detecta `stalledDL` sin seeds durante más de 6 h y ofrece botones para buscar otro release, eliminar el torrent o ignorarlo | 10 min |
-| **Storage Guardian** | Alerta preventiva con < 35 GB libres, crítica con < 20 GB (pausa qBittorrent) y reanudación automática al recuperar 40 GB | 5 min |
-| **Live Event Bus** | Nuevas descargas, idioma detectado, fin de descarga, solicitudes Seerr, caídas/reconexiones de internet y Tailscale | 60 s |
-| **Security Watcher** | Conexiones establecidas a Nextcloud/Portainer desde IPs no privadas e inicios de sesión externos en `nextcloud.log` | 60 s |
-| **Morning Briefing** | Reporte ejecutivo diario con sistemas, disco, media importada en 24 h y Pi-hole | 08:00 `America/Santo_Domingo` |
-
-### Consola de Telegram
-
-- `/mission` · `/status` — panel principal con telemetría y botones inline.
-- `/containers` — estado de la flota y reinicio de cualquier servicio con un toque.
-- `/queue` — progreso de qBittorrent, pausar/reanudar y solicitudes de Seerr.
-- `/buscar <título>` — busca películas en Seerr y permite solicitarlas con un toque.
-- `/disk` — desglose de consumo (Nextcloud, media, Docker).
-- `/node2` — estado del Nodo 2, encenderlo por Wake-on-LAN y apagarlo con confirmación.
-- `/briefing`, `/iptv`, `/maint`, `/selftest`, `/help`.
-- Lenguaje natural: “estado del servidor”, “estado del nodo 2”, “enciende el nodo 2”, “apaga el nodo 2”, “reinicia sonarr”, “pausa las descargas”, “busca Cars”, “¿cuánto espacio libre queda?”.
-- Los botones de limpieza solo purgan capas huérfanas y build cache. La eliminación de un torrent conserva siempre los archivos descargados.
-
-### Control del Nodo 2
-
-El bot se conecta por SSH con una clave dedicada (`/home/mrdavid/.ssh/node2_bot`, montada read-only en `/app/ssh/id_ed25519`) y usa `NODE2_HOST=192.168.1.4` con fallback a Tailscale `100.67.30.11`. El `known_hosts` propio se guarda en `data/known_hosts`.
-
-| Acción | Cómo | Efecto |
-| :--- | :--- | :--- |
-| **Estado** | `/node2` o botón `🖥️ Nodo 2` | hostname, OS, kernel, CPU, RAM, discos, GPU, Docker, uptime e IPs |
-| **Encender** | `/node2 on` o botón `⚡ Encender (WoL)` | magic packet a `192.168.1.255` y `255.255.255.255`, puertos 9 y 7 |
-| **Apagar** | `/node2 off` → confirmar | `sudo -n poweroff` vía SSH; requiere `Wake-on: g` para volver a encender |
-
-Variables en `.env`: `NODE2_NAME`, `NODE2_HOST`, `NODE2_TAILSCALE_HOST`, `NODE2_MAC`, `NODE2_SSH_USER`, `NODE2_SSH_PORT`, `NODE2_SSH_KEY`, `NODE2_WOL_BROADCAST` y `NODE2_STORAGE_PATH`.
-
-### Montajes y modelo de seguridad
-
-- `/var/run/docker.sock` (rw): necesario para inspeccionar y reiniciar contenedores. Equivale a acceso root sobre Docker; el contenedor no se expone a Internet y solo obedece al `CHAT_ID` del propietario.
-- `/:/hostfs:ro`: permite leer `/proc`, `/sys` y `/var/lib/docker` del host para telemetría y desglose de disco sin modificarlo.
-- `./data:/app/data`: estado persistente (incidentes, hashes notificados, offsets de logs, `known_hosts`).
-- `/home/mrdavid/.ssh/node2_bot:/app/ssh/id_ed25519:ro`: clave SSH dedicada del bot hacia el Nodo 2, con permisos `600`. No se reutiliza la clave personal del administrador.
-
-### Operación
+A quick health check from the administration host:
 
 ```bash
-cd /home/mrdavid/HomeLab/docker/telegram-bot
-docker compose up -d --build          # reconstruir y recrear
-docker compose logs -f --tail=100     # observar el arranque
-docker exec optiplex-chatops node --dns-result-order=ipv4first bot.js --selftest
+ssh homelab 'docker ps --format "table {{.Names}}\t{{.Status}}"'
+ssh homelab 'sudo tailscale serve status'
+ssh homelab 'ssh -i ~/.ssh/node2_bot mrdavid@192.168.1.4 "findmnt /mnt/storage && df -h /mnt/storage"'
 ```
-
-El autodiagnóstico valida Telegram, Docker, host, Radarr, Sonarr, Seerr, Jellyfin, qBittorrent, Pi-hole y Nodo 2 (10 integraciones), y envía el reporte real al Telegram del propietario. Antes de cada cambio se crea un respaldo en `/home/mrdavid/backups-compose/`.
-
----
-
-## ⚡ Hardlinks y Movimientos Atómicos
-
-Para evitar duplicar espacio en disco en la partición SSD:
-1. Todos los servicios de descarga y gestión (`qbittorrent`, `radarr`, `sonarr`, `jellyfin`) montan la misma ruta raíz `/home/mrdavid/HomeLab/media` en el contenedor bajo `/media`.
-2. Al completarse una descarga en `/media/descargas`, Radarr/Sonarr crean un **hardlink** (enlace duro apuntando al mismo inodo) en `/media/peliculas` o `/media/series`.
-3. Esto permite seguir sembrando el torrent en qBittorrent sin consumir doble almacenamiento en el disco.
-
----
-
-## 🗄️ Respaldo de Immich hacia Nodo 2
-
-- **Script:** `/home/mrdavid/HomeLab/scripts/backup_immich_to_node2.sh` (cron diario `30 3 * * *`, log `docker/immich/backup_to_node2.log`).
-- **Comportamiento:** comprueba SSH a `192.168.1.4`; si el Nodo 2 no responde, **sale limpiamente sin error**. Si está encendido: `pg_dump` (gzip) de `immich-postgres` (retención local 7 días) y `rsync` de `/home/mrdavid/HomeLab/docker/immich/library` hacia `/mnt/storage/backups/immich/` (`library/` + `db/`).
-- **Requisito:** SSH `mrdavid@192.168.1.4` desde Nodo 1 y `/mnt/storage` montado por UUID (nunca tocar SSD Kingston).
-
----
-
-## 🔒 Seguridad y Privacidad
-
-- **Gestión de Secretos:** Ningún archivo `.env`, token de bot, llave API ni contraseña se sube a GitHub. Cada carpeta contiene su respectivo `.env.example`.
-- **Bases de Datos y Caché:** Todas las carpetas `config`, cachés de transcodificación y bases de datos (`.db`, `.sqlite`) están excluidas en `.gitignore`.
-- **Acceso al bot:** Solo el `CHAT_ID` del propietario puede ejecutar comandos o pulsar botones; cualquier otro mensaje se ignora y se registra en los logs.
-- **Acceso al Nodo 2:** clave SSH dedicada `node2_bot` (sin passphrase, permisos `600`) autorizada solo para `mrdavid`; el bot no toca el SSD Kingston ni formatea discos. El apagado remoto exige confirmación explícita y solo se usa con `Wake-on: g` verificado.
-- **Datos protegidos:** El bot nunca borra ni mueve archivos de `/media` ni volúmenes de Nextcloud. “Eliminar torrent” solo lo quita de qBittorrent y conserva los archivos.
-- **Respaldos Automatizados:** Todo cambio en composiciones o configuraciones crea un snapshot previo en `/home/mrdavid/backups-compose/YYYYMMDD_HHMMSS/`.

@@ -75,7 +75,7 @@ Tailscale links Node 1, Node 2, an iPhone and a MacBook. Funnel is disabled. `ta
 
 ### Zero-Duplication Storage & Distributed ML (Immich + Nextcloud)
 
-Nextcloud runs from the `nextcloud_nextcloud_data` volume, about 119 GB. The user tree holds 30,142 files (99.7 GiB). Immich's library tracks 20,600 media assets (65.6 GiB), most of them from that tree. A further 4,861 preview files add 11 GB in the appdata cache, which puts photos, video and thumbnails at roughly 76 GB. The `Photos` directory is bind-mounted read-only into Immich at `/usr/src/app/external/nextcloud-photos:ro` and registered as an external library. The originals never enter Immich's upload volume, so the SSD does not hold a second copy.
+Nextcloud runs from the `nextcloud_nextcloud_data` volume, about 119 GB. The user tree holds 30,142 files (99.7 GiB), and the preview cache adds 14,028 files (10 GiB), for 44,170 files in total. Immich's library tracks 20,600 media assets (65.6 GiB), most of them from the photo tree. Photos, video and thumbnails come to roughly 76 GiB. The `Photos` directory is bind-mounted read-only into Immich at `/usr/src/app/external/nextcloud-photos:ro` and registered as an external library. The originals never enter Immich's upload volume, so the SSD does not hold a second copy.
 
 Immich server has a 2 GB and 2 CPU limit. PostgreSQL runs the vectorchord and pgvectors image with 768 MB and one CPU; Valkey gets 256 MB and half a CPU. `immich-config.json` caps thumbnail and video jobs at one worker, face and smart-search jobs at one, and metadata extraction at two. That keeps the 4-core host responsive during a first scan.
 

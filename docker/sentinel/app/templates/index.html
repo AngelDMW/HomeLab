@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HomeLab Sentinel AI — Mission Control</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>HomeLab Sentinel AI</h1>
+      <div class="subtitle">Gemelo Digital en tiempo real + Auto-Sanación Cognitiva — Nodo 1 (192.168.1.3)</div>
+    </div>
+    <div class="top-actions">
+      <div id="cycleInfo" class="muted">Ciclo: —</div>
+      <button id="auditBtn" class="btn primary">Auditar Todo con IA Ahora</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card map-card">
+      <div class="card-title">Gemelo Digital — Mapa Interactivo</div>
+      <div id="map" class="map"></div>
+      <div id="nodeDetail" class="node-detail muted">Haz clic en un nodo para ver detalles.</div>
+    </section>
+
+    <section class="card right-col">
+      <div class="card-title">Salud del Host OptiPlex</div>
+      <div class="meters">
+        <div class="meter-block">
+          <div class="meter-label">SSD /dev/sda1 <span id="ssdPctLabel"></span></div>
+          <div class="meter"><div id="ssdBar" class="bar"></div></div>
+          <div id="ssdMeta" class="muted small"></div>
+        </div>
+        <div class="stats-row" id="hostStats"></div>
+      </div>
+      <div class="card-title mt">Sondas L7 y Servicios</div>
+      <div id="probes" class="probes"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">Feed en vivo — Auto-reparaciones e Incidentes IA</div>
+      <div id="repairs" class="feed"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">Consola — Pregunta sobre estado y logs</div>
+      <div class="console">
+        <div id="chatLog" class="chat-log"></div>
+        <form id="askForm" class="ask-form">
+          <input id="askInput" type="text" placeholder="Ej: ¿Cómo está Threadfin? ¿Hay errores en Jellyfin? ¿Por qué subió el disco?" autocomplete="off" />
+          <button class="btn" type="submit">Preguntar</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="card full">
+      <div class="card-title">Contenedores Docker (Gemelo)</div>
+      <div id="containers" class="containers"></div>
+    </section>
+  </main>
+
+  <div id="auditModal" class="modal hidden">
+    <div class="modal-content card">
+      <div class="modal-header"><div class="card-title">Auditoría Completa con IA</div><button id="closeAudit" class="btn small">Cerrar</button></div>
+      <pre id="auditResult" class="audit-pre"></pre>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

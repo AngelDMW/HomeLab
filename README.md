@@ -26,6 +26,7 @@ A self-hosted platform that separates always-on services from on-demand compute.
 | FlareSolverr        :8191        |   | 223.6 GB Kingston SSD: OS only   |
 | Threadfin           :34400       |   |                                  |
 | Portainer        :9443, :8000    |   |                                  |
+| Sentinel AI         :9090        |   |                                  |
 |                                  |   |                                  |
 | seerr-theme         :5055        |   |                                  |
 |   nginx -> jellyseerr:5055       |   |                                  |
@@ -57,7 +58,7 @@ LAN clients connect to the static addresses on Node 1. Tailscale clients use the
 | Network | 1 GbE, `192.168.1.3/24` | 1 GbE, `192.168.1.4/24` |
 | OS | Debian 12, kernel 6.1.0-53-amd64 | Debian 12, kernel 6.1.0-56-amd64, Docker 29.10.0, Compose 5.8.0 |
 | Power | 24/7 | On demand, `Wake-on: g` on `enp3s0` |
-| Workloads | Nextcloud, Immich server, PostgreSQL and Valkey, Pi-hole, Jellyfin, the Servarr stack, Threadfin, Seerr, Portainer, ChatOps bot | `immich-machine-learning`, `portainer_agent`, ML model cache and the backup target |
+| Workloads | Nextcloud, Immich server, PostgreSQL and Valkey, Pi-hole, Jellyfin, the Servarr stack, Threadfin, Seerr, Portainer, ChatOps bot, Sentinel AI | `immich-machine-learning`, `portainer_agent`, ML model cache and the backup target |
 
 Node 1 has 7.6 GiB usable and currently uses 4.4 GiB across 17 containers. Immich server alone reached 1.55 GiB during indexing. A 2.5 GiB machine-learning worker on the same host would leave under 1 GiB of headroom and force page-cache reclaim under indexing load. Node 2 has 3.8 GiB and a GPU that exposes VA-API, so it takes the ML container and the backup disk. The split also keeps DNS, Nextcloud and Jellyfin available when Node 2 is off.
 
@@ -98,6 +99,17 @@ Seerr's official image is not patched. A 32 MB `nginx:alpine` container named `s
 Steady-state RSS is 5.5 to 5.6 MiB, well under the 32 MB cap. The container peaked at 14.8 MiB during startup. `docker compose pull` replaces Seerr without touching the theme. The CSS lives in `docker/media-stack/seerr-theme/html` and is mounted as a directory, so editing it and reloading Nginx is enough.
 
 `5055` is the only Seerr entry point on the LAN. `5056` is loopback for diagnostics. Mapping `5055` on the Seerr container would make the proxy fail to bind, so that mapping stays out of the compose file.
+
+### HomeLab Sentinel AI — Digital Twin & Cognitive Auto-Healing
+
+`homelab-sentinel` runs on Node 1 as a host-network, privileged Python 3.11 service (FastAPI + APScheduler) exposed at `:9090` (`http://192.168.1.3:9090`). It keeps a live digital twin of the homelab and performs deterministic monitoring with optional LLM-assisted diagnosis.
+
+- **Digital Twin (`twin_engine.py`):** auto-discovers Docker containers (state, health, networks, mounts and CPU/RAM stats), host telemetry (CPU temperature, RAM, `/dev/sda1` with early alert at 92%, Tailscale interface and QuickSync `/dev/dri/renderD128`) and physical/network nodes: ZTE gateway `192.168.1.1`, Nexxt AP `192.168.1.254`, OptiPlex host `192.168.1.3` and TCL Android TV 12 `192.168.1.8`. Time series, incidents and repair history are stored in SQLite (`docker/sentinel/data/sentinel.db`).
+- **Deep L7 Probes (`probes.py`, every 30 s):** Threadfin (`/m3u/threadfin.m3u`, `/xmltv/threadfin.xml`, `docker/threadfin/logs/last_run.json` for active-channel/sync health), Pi-hole real DNS resolution and filtering latency, Nextcloud `/status.php`, Immich `/api/server/ping` plus `/nextcloud-photos:ro` mount verification, Jellyfin `/System/Info/Public`, disk margin on `/dev/sda1`, and container/log scans for `unhealthy`/`restarting` states and patterns (`OOM`, `FATAL`, `I/O error`, `connection refused`).
+- **Cognitive Brain & Guarded Auto-Healing (`ai_brain.py`, `healer.py`):** a deterministic detector runs every 30 s with 0 LLM tokens in normal state. When anomalies are found it escalates to `SENTINEL_LLM_PROVIDER` (`gemini|openrouter|openai`, `SENTINEL_API_KEY`) with digital-twin context and the last 60 log lines of the affected service, falling back to an offline rule engine when no key/internet is available. **Tier 1 (automatic, max 2 actions / 30 min / service):** restart hung/unhealthy containers, run `threadfin_sync.sh --publish` when Threadfin M3U/EPG is empty, and clean safe temporary caches if `/dev/sda1` exceeds 95%. **Tier 2 (one-tap approval):** sends an ntfy notification (`NTFY_TOPIC`) in Spanish with diagnosis and signed HTTP Approve/Ignore actions.
+- **Mission Control (`http://192.168.1.3:9090`):** dark-mode dashboard with interactive digital-twin map (ZTE → Nexxt → OptiPlex → Containers → TCL TV), `/dev/sda1` meter, live auto-repair/incident feed, “Auditar Todo con IA Ahora”, and a console for questions about server state and logs.
+
+Runtime config: `docker/sentinel/.env` (see `.env.example`). State/logs DB lives in `docker/sentinel/data/` (ignored by Git).
 
 ### Fault-Tolerant Cross-Node Backup Automation
 
@@ -144,6 +156,22 @@ HomeLab/
 │   │   └── .env.example
 │   ├── portainer/                Docker management UI
 │   │   └── docker-compose.yml
+│   ├── sentinel/                 Digital twin, L7 probes and AI auto-healing
+│   │   ├── app/
+│   │   │   ├── main.py
+│   │   │   ├── twin_engine.py
+│   │   │   ├── probes.py
+│   │   │   ├── ai_brain.py
+│   │   │   ├── healer.py
+│   │   │   ├── db.py
+│   │   │   ├── templates/
+│   │   │   └── static/
+│   │   ├── data/                 SQLite state (ignored)
+│   │   ├── Dockerfile
+│   │   ├── docker-compose.yml
+│   │   ├── requirements.txt
+│   │   ├── .env                  Runtime secrets (ignored)
+│   │   └── .env.example
 │   ├── telegram-bot/             ChatOps agent
 │   │   ├── bot.js
 │   │   ├── config.js

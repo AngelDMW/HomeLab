@@ -1,0 +1,28 @@
+services:
+  sentinel:
+    build: .
+    container_name: homelab-sentinel
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    privileged: true
+    env_file:
+      - .env
+    environment:
+      - SENTINEL_PORT=9090
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /dev/dri:/dev/dri:ro
+      - /:/hostfs:ro
+      - /home/mrdavid/HomeLab/docker/threadfin/logs:/threadfin_logs:ro
+      - /home/mrdavid/HomeLab/docker/threadfin:/home/mrdavid/HomeLab/docker/threadfin
+      - ./data:/app/data
+    mem_limit: 512m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

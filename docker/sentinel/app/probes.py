@@ -1,0 +1,225 @@
+import json, os, re, socket, subprocess, time
+from urllib.parse import urljoin
+import httpx
+import dns.resolver
+from .config import settings
+from .db import add_sample, kv_get, kv_set
+from .twin_engine import docker_client
+
+TIMEOUT = 8.0
+
+def _http_get(url, headers=None, max_text=200000):
+    t0 = time.time()
+    try:
+        with httpx.Client(timeout=TIMEOUT, follow_redirects=True, verify=False) as c:
+            r = c.get(url, headers=headers or {})
+        ms = round((time.time()-t0)*1000,1)
+        text = r.text or ''
+        if max_text and len(text) > max_text:
+            text = text[:max_text]
+        return {'ok': r.status_code < 400, 'status_code': r.status_code, 'latency_ms': ms, 'text': text}
+    except Exception as e:
+        return {'ok': False, 'error': str(e), 'latency_ms': round((time.time()-t0)*1000,1)}
+
+def probe_threadfin():
+    base = 'http://192.168.1.3:34400'
+    m3u = _http_get(base + '/m3u/threadfin.m3u')
+    xml = _http_get(base + '/xmltv/threadfin.xml')
+    channels = 0
+    if m3u.get('ok') and m3u.get('text'):
+        # count EXTINF entries
+        channels = len(re.findall(r'^#EXTINF', m3u['text'], re.M))
+    empty = (not m3u.get('ok')) or channels == 0 or (not xml.get('ok')) or len((xml.get('text') or '').strip()) < 100
+    # read last_run.json
+    last_run = None
+    path = os.path.join(settings.threadfin_logs_dir, 'last_run.json')
+    try:
+        if os.path.exists(path):
+            with open(path) as f:
+                last_run = json.load(f)
+    except Exception as e:
+        last_run = {'error': str(e)}
+    prev = kv_get('threadfin_channels')
+    dropped = False
+    if prev and channels and isinstance(prev, int) and prev > 0:
+        # alert if dropped significantly (>10% or to zero-ish)
+        if channels < prev * 0.9:
+            dropped = True
+    if channels:
+        kv_set('threadfin_channels', channels)
+    sync_failed = False
+    if isinstance(last_run, dict):
+        # look for failure indicators
+        txt = json.dumps(last_run).lower()
+        if 'fail' in txt or 'error' in txt or last_run.get('ok') is False or last_run.get('success') is False:
+            # but avoid false positives; check explicit rc/status
+            if last_run.get('rc') not in (None, 0) or last_run.get('status') in ('failed','error') or last_run.get('errors'):
+                sync_failed = True
+    return {
+        'name': 'Threadfin', 'port': 34400,
+        'm3u_ok': m3u.get('ok'), 'xml_ok': xml.get('ok'),
+        'channels': channels, 'channels_dropped': dropped, 'prev_channels': prev,
+        'empty': empty, 'sync_failed': sync_failed,
+        'last_run': last_run,
+        'status': 'ok' if (m3u.get('ok') and xml.get('ok') and channels>0 and not sync_failed and not dropped) else 'degraded' if (m3u.get('ok') or xml.get('ok')) else 'down'
+    }
+
+def probe_pihole():
+    # UDP DNS query to Pi-hole
+    resolver = dns.resolver.Resolver(configure=False)
+    resolver.nameservers = ['192.168.1.3']
+    resolver.timeout = 3.0
+    resolver.lifetime = 3.0
+    def q(name):
+        t0=time.time()
+        try:
+            ans = resolver.resolve(name, 'A')
+            ms = round((time.time()-t0)*1000,1)
+            ips = [r.to_text() for r in ans]
+            return {'ok': True, 'ips': ips, 'latency_ms': ms}
+        except Exception as e:
+            ms = round((time.time()-t0)*1000,1)
+            return {'ok': False, 'error': str(e), 'latency_ms': ms}
+    good = q('google.com')
+    blocked = q('doubleclick.net')
+    # Pi-hole often returns 0.0.0.0 or blocks; filtering state ok if blocked is 0.0.0.0 or refused/nxdomain depending
+    bips = blocked.get('ips') or []
+    filtering = any(ip.startswith('0.0.0.0') or ip == '::' for ip in bips) or (not blocked.get('ok'))
+    # but NXDOMAIN/refused can also mean blocking; treat resolution to 0.0.0.0 as clear signal
+    if '0.0.0.0' in bips: filtering = True
+    status = 'ok' if good.get('ok') else 'down'
+    return {
+        'name': 'Pi-hole', 'port': 53,
+        'resolve_ok': good.get('ok'), 'resolve_latency_ms': good.get('latency_ms'),
+        'blocked_test': blocked, 'filtering_active': filtering,
+        'status': status
+    }
+
+def probe_nextcloud():
+    # try localhost/127.0.0.1 first to avoid trusted-domain issues; fallback to LAN IP
+    r = None
+    for url in ['http://127.0.0.1:8080/status.php', 'http://localhost:8080/status.php', 'http://192.168.1.3:8080/status.php']:
+        rr = _http_get(url, max_text=4000)
+        r = rr
+        body = {}
+        try:
+            if rr.get('text'):
+                body = json.loads(rr['text'])
+        except Exception:
+            body = {}
+        ok = rr.get('ok') and (body.get('installed') in (True, 'true', 1))
+        if ok:
+            return {'name':'Nextcloud','port':8080,'endpoint':'/status.php','url':url,'ok':True,'details':{k: body.get(k) for k in ('installed','maintenance','needsDbUpgrade','versionstring') if k in body},'status':'ok'}
+        # if we got explicit installed json even with oddities, accept
+        if isinstance(body, dict) and body.get('installed') is True:
+            return {'name':'Nextcloud','port':8080,'endpoint':'/status.php','url':url,'ok':True,'details':body,'status':'ok'}
+    # last result
+    body = {}
+    try:
+        if r and r.get('text'): body = json.loads(r['text'])
+    except Exception:
+        body = {}
+    ok = bool(r and r.get('ok') and (body.get('installed') in (True, 'true', 1)))
+    return {'name':'Nextcloud','port':8080,'endpoint':'/status.php','ok':ok,'details':body or ({'status_code': r.get('status_code')} if r else {}),'status':'ok' if ok else 'down','error':(r or {}).get('error')}
+
+def probe_immich():
+    r = _http_get('http://192.168.1.3:2283/api/server/ping')
+    ok = r.get('ok') and ('pong' in (r.get('text') or '').lower() or r.get('status_code')==200)
+    # check immich external mount
+    mount_ok = None; mount_info = None
+    try:
+        cli = docker_client()
+        if cli:
+            c = cli.containers.get('immich-server')
+            mounts = c.attrs.get('Mounts') or []
+            for m in mounts:
+                if m.get('Destination') == '/usr/src/app/external/nextcloud-photos':
+                    mount_ok = (m.get('RW') is False)
+                    mount_info = {'source': m.get('Source'), 'ro': (m.get('RW') is False), 'type': m.get('Type')}
+                    break
+            if mount_ok is None:
+                mount_ok = False; mount_info = {'error': 'mount not found'}
+    except Exception as e:
+        mount_info = {'error': str(e)}
+    return {'name':'Immich','port':2283,'endpoint':'/api/server/ping','ok':ok,'mount_nextcloud_photos_ro': mount_ok,'mount_info': mount_info,'status':'ok' if ok else 'down','error':r.get('error')}
+
+def probe_jellyfin():
+    r = _http_get('http://192.168.1.3:8096/System/Info/Public')
+    body = {}
+    try:
+        if r.get('text'): body = json.loads(r['text'])
+    except Exception: pass
+    ok = r.get('ok') and (body.get('ServerName') or r.get('status_code')==200)
+    return {'name':'Jellyfin','port':8096,'endpoint':'/System/Info/Public','ok':ok,'details':{k: body.get(k) for k in ('ServerName','Version','ProductName') if isinstance(body,dict)},'status':'ok' if ok else 'down','error':r.get('error')}
+
+def check_containers_and_logs():
+    cli = docker_client()
+    issues = []
+    summaries = []
+    if not cli:
+        return {'issues': [{'component':'docker','issue':'docker unavailable'}], 'summaries': []}
+    try:
+        for c in cli.containers.list(all=True):
+            st = c.attrs.get('State',{})
+            name = c.name
+            health = (st.get('Health') or {}).get('Status')
+            restarting = st.get('Restarting', False)
+            status = c.status
+            if health == 'unhealthy' or restarting or status == 'restarting':
+                issues.append({'component': name, 'issue': f'state={status} health={health} restarting={restarting}', 'type':'container'})
+            # scan recent logs
+            try:
+                logs = c.logs(tail=60, since=int(time.time())-600).decode('utf-8','ignore')
+            except Exception:
+                logs = ''
+            patterns = []
+            for pat in ['OOM', 'Out of memory', 'FATAL', 'I/O error', 'Input/output error', 'connection refused', 'Connection refused']:
+                if pat.lower() in logs.lower():
+                    patterns.append(pat)
+            if patterns:
+                # de-dup
+                patterns = sorted(set(patterns))
+                issues.append({'component': name, 'issue': 'log patterns: '+', '.join(patterns), 'type':'logs', 'patterns': patterns})
+                summaries.append({'name': name, 'patterns': patterns, 'tail': logs.splitlines()[-60:]})
+    except Exception as e:
+        issues.append({'component':'docker','issue':str(e)})
+    return {'issues': issues, 'summaries': summaries}
+
+def disk_margin_check():
+    # /dev/sda1 margin via hostfs root (df-style percentage)
+    import shutil
+    base = settings.hostfs if os.path.isdir(settings.hostfs) else '/'
+    try:
+        u = shutil.disk_usage(base)
+        used_pct = round(((u.total-u.free)/u.total)*100,1) if u.total else None
+        return {'ok': used_pct is not None and used_pct < 95, 'used_pct': used_pct, 'free_gb': round(u.free/(1024**3),2), 'warn_92': used_pct is not None and used_pct >= 92, 'critical_95': used_pct is not None and used_pct >= 95}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+def run_all_probes():
+    results = {}
+    for key, fn in [
+        ('threadfin', probe_threadfin),
+        ('pihole', probe_pihole),
+        ('nextcloud', probe_nextcloud),
+        ('immich', probe_immich),
+        ('jellyfin', probe_jellyfin),
+    ]:
+        try:
+            results[key] = fn()
+        except Exception as e:
+            results[key] = {'name': key, 'status': 'error', 'error': str(e)}
+        try:
+            add_sample(f'probe:{key}', results[key].get('status','unknown'), {'ok': results[key].get('ok') or results[key].get('status')=='ok'})
+        except Exception:
+            pass
+    try:
+        results['containers_logs'] = check_containers_and_logs()
+    except Exception as e:
+        results['containers_logs'] = {'issues': [{'component':'docker','issue':str(e)}], 'summaries': []}
+    try:
+        results['disk'] = disk_margin_check()
+    except Exception as e:
+        results['disk'] = {'ok': False, 'error': str(e)}
+    kv_set('last_probes', results)
+    return results

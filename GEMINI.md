@@ -29,6 +29,7 @@
   - Pi-hole v6 (:53 DNS, :80 Web Admin)
   - Portainer (:8000, :9000, :9443 HTTPS)
   - Optiplex Brain / Telegram Bot 2.1.0 (optiplex-chatops - network_mode host, IPv4-first)
+  - HomeLab Sentinel AI (:9090, `docker/sentinel`, `homelab-sentinel`, host+privileged) — Gemelo Digital, sondas L7 cada 30 s y auto-sanación cognitiva (Mission Control en `http://192.168.1.3:9090`).
   - Nodo 2: `portainer_agent` (:9001, desplegado manualmente) e `immich-machine-learning` (:3003, `docker/immich-ml`, 2560m, cache `/mnt/storage/immich-ml-cache`, bajo demanda). Docker listo (RX 550 VA-API + `/mnt/storage`).
 
 ## Topología de Red (actual)
@@ -99,3 +100,17 @@
 6. **Privacidad en GitHub:** NUNCA subir archivos .env, credenciales, tokens, certificados, bases de datos, caché ni logs al repositorio. Mantener .gitignore rigurosamente actualizado.
 7. **Acceso del bot:** El contenedor monta `/var/run/docker.sock` (equivalente a root en Docker) y `/:/hostfs:ro`. No exponerlo a Internet; solo responde al `CHAT_ID` autorizado y registra intentos externos. La clave `node2_bot` es exclusiva del bot y se monta read-only.
 8. **APIs:** Jellyfin requiere `Authorization: MediaBrowser Token="..."`; qBittorrent 5.3 exige parámetros POST en el cuerpo (`hashes=all`), no en la query; Pi-hole v6 usa `POST /api/auth` + `X-FTL-SID`.
+
+
+## HomeLab Sentinel AI (Gemelo Digital + Auto-Sanación)
+- **Servicio:** `homelab-sentinel` (`docker/sentinel`, Python 3.11 / FastAPI + uvicorn + APScheduler, host network, `pid: host`, `privileged: true`, límites 512 MB / 1 CPU). Panel **Mission Control**: `http://192.168.1.3:9090` (HTTP 200, `/health`).
+- **Ruta y configuración:** `/home/mrdavid/HomeLab/docker/sentinel/`. Variables en **`/home/mrdavid/HomeLab/docker/sentinel/.env`** (no versionado; pegar ahí `SENTINEL_API_KEY` de Gemini y `NTFY_TOPIC`). Plantilla: `.env.example`. Estado/series/incidentes en `data/sentinel.db` (ignorado).
+- **Arquitectura:**
+  - `twin_engine.py`: descubre contenedores Docker (CPU/RAM, redes, volúmenes), mapea Gateway ZTE `192.168.1.1`, AP Nexxt `192.168.1.254`, Host OptiPlex `192.168.1.3` (temp CPU, RAM, SSD `/dev/sda1` con alerta ≥92%, Tailscale, QuickSync `/dev/dri/renderD128`) y TCL Android TV 12 `192.168.1.8`; persiste series temporales e historial en SQLite.
+  - `probes.py` (cada 30 s): Threadfin `:34400` (`/m3u/threadfin.m3u`, `/xmltv/threadfin.xml`, `logs/last_run.json`), Pi-hole DNS real/filtrado, Nextcloud `/status.php`, Immich `/api/server/ping` + montaje `/nextcloud-photos:ro`, Jellyfin `/System/Info/Public`, margen de `/dev/sda1`, contenedores `unhealthy`/`restarting` y patrones `OOM|FATAL|I/O error|connection refused` en logs recientes.
+  - `ai_brain.py` + `healer.py`: detector determinista cada 30 s (0 tokens en estado normal). Escala a LLM `SENTINEL_LLM_PROVIDER=gemini|openrouter|openai` con `SENTINEL_API_KEY` y contexto (gemelo + últimas 60 líneas de logs) o a motor de reglas offline si no hay API key/internet.
+- **Niveles de auto-sanación:**
+  - *Tier 1 (automático, máx. 2 acciones / 30 min / servicio):* reiniciar contenedor colgado/unhealthy; ejecutar `docker/threadfin/threadfin_sync.sh --publish` si M3U/EPG de Threadfin aparece vacío; limpiar cachés temporales seguras si `/dev/sda1` supera 95%.
+  - *Tier 2 (aprobación en 1 toque):* notificación push vía **ntfy** (`NTFY_TOPIC`, `NTFY_SERVER`) con diagnóstico en español y botones HTTP firmados **Aprobar/ Ignorar** (`SENTINEL_ACTION_SECRET`, `SENTINEL_PUBLIC_URL`).
+- **Operación:** `cd /home/mrdavid/HomeLab/docker/sentinel && docker compose up -d --build` (reconstruir) · `docker compose logs -f` · auditoría manual `curl -sS -X POST http://192.168.1.3:9090/api/audit`. El contenedor monta docker.sock, `/proc`,`/sys`,`/dev/dri`, `/` (hostfs ro), logs de Threadfin y el directorio Threadfin para acciones de publicación; acceso de solo lectura donde aplica y acciones acotadas por guardrails.
+- **Auditoría inicial (2026-11-19):** sondas L7 validadas (Threadfin 426 canales M3U/XMLTV OK, Pi-hole DNS/filtrado OK, Nextcloud 200/installed, Immich ping + `/nextcloud-photos:ro` OK, Jellyfin OK, contenedores/logs sin patrones críticos en ciclo final). SSD `/dev/sda1` en **92.5%** (alerta temprana, <95%) — sin limpieza automática.

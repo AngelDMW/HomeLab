@@ -1,6 +1,6 @@
 # Two-Node Hybrid HomeLab Infrastructure
 
-A self-hosted platform that separates always-on services from on-demand compute. Node 1 runs Debian 12 and 17 containers for Nextcloud, Immich, Jellyfin and Pi-hole on a Dell OptiPlex 5040; Node 2 stays off until Wake-on-LAN brings it up for Immich machine learning and cold backups. Remote access goes through a Tailscale tailnet, with no inbound ports exposed to the internet.
+A self-hosted platform that separates always-on services from on-demand compute. Node 1 runs Debian 12 and 20 containers for Nextcloud, Immich, Jellyfin, Pi-hole and active defense on a Dell OptiPlex 5040; Node 2 stays off until Wake-on-LAN brings it up for Immich machine learning and cold backups. Remote access goes through a Tailscale tailnet, with no inbound ports exposed to the internet.
 
 ## System Architecture
 
@@ -17,7 +17,10 @@ A self-hosted platform that separates always-on services from on-demand compute.
 | always on                        |   | on demand, Wake-on-LAN           |
 |                                  |   |                                  |
 | Pi-hole             :53, :80     |   | immich-machine-learning   :3003  |
-| Nextcloud           :8080        |   | portainer_agent           :9001  |
+| Unbound      127.0.0.1:5335       |   | portainer_agent           :9001  |
+| CrowdSec LAPI 127.0.0.1:8085     |   |                                  |
+|   bouncer iptables (host)        |   |                                  |
+| Nextcloud           :8080        |   |                                  |
 | Immich              :2283        |   |                                  |
 | Jellyfin            :8096 (host) |   | /mnt/storage (1 TB HDD, ext4)    |
 | qBittorrent     :8081, :6881     |   |   immich-ml-cache/               |
@@ -58,9 +61,9 @@ LAN clients connect to the static addresses on Node 1. Tailscale clients use the
 | Network | 1 GbE, `192.168.1.3/24` | 1 GbE, `192.168.1.4/24` |
 | OS | Debian 12, kernel 6.1.0-53-amd64 | Debian 12, kernel 6.1.0-56-amd64, Docker 29.10.0, Compose 5.8.0 |
 | Power | 24/7 | On demand, `Wake-on: g` on `enp3s0` |
-| Workloads | Nextcloud, Immich server, PostgreSQL and Valkey, Pi-hole, Jellyfin, the Servarr stack, Threadfin, Seerr, Portainer, ChatOps bot, Sentinel AI | `immich-machine-learning`, `portainer_agent`, ML model cache and the backup target |
+| Workloads | Nextcloud, Immich server, PostgreSQL and Valkey, Pi-hole, Unbound, CrowdSec, Jellyfin, the Servarr stack, Threadfin, Seerr, Portainer, ChatOps bot, Sentinel AI | `immich-machine-learning`, `portainer_agent`, ML model cache and the backup target |
 
-Node 1 has 7.6 GiB usable and currently uses 4.4 GiB across 17 containers. Immich server alone reached 1.55 GiB during indexing. A 2.5 GiB machine-learning worker on the same host would leave under 1 GiB of headroom and force page-cache reclaim under indexing load. Node 2 has 3.8 GiB and a GPU that exposes VA-API, so it takes the ML container and the backup disk. The split also keeps DNS, Nextcloud and Jellyfin available when Node 2 is off.
+Node 1 has 7.6 GiB usable and currently uses 4.4 GiB across 20 containers. Immich server alone reached 1.55 GiB during indexing. A 2.5 GiB machine-learning worker on the same host would leave under 1 GiB of headroom and force page-cache reclaim under indexing load. Node 2 has 3.8 GiB and a GPU that exposes VA-API, so it takes the ML container and the backup disk. The split also keeps DNS, Nextcloud and Jellyfin available when Node 2 is off.
 
 Node 2 is a capacity and storage tier, not a standby cluster. There is no automatic failover for Pi-hole, Nextcloud or the media stack. A Node 1 disk failure is a restore-from-backup event, not a cluster election.
 
@@ -70,7 +73,15 @@ Node 2 is a capacity and storage tier, not a standby cluster. There is no automa
 
 The ZTE F6201B at `192.168.1.1` is the only DHCP and NAT device. The Nexxt Amp300 at `192.168.1.254` is a bridge on 2.4 GHz, channel 6, 20 MHz, so it adds no second DHCP scope. Both servers set static addresses in `/etc/network/interfaces`. The ZTE ignored the `.3` and `.4` reservations, and the DHCP pool starts at `.5`, so a lease cannot collide with either node.
 
-Pi-hole v6 answers DNS on `192.168.1.3:53` over TCP and UDP and serves its admin UI on `:80`. The ZTE advertises only Pi-hole to LAN clients, with `8.8.8.8` and `8.8.4.4` as upstreams. The StevenBlack list blocks about 77,000 domains and returns `0.0.0.0` for sinkholed names. IPv4 filtering is complete. The ZTE router advertisement still hands out `fe80::1` as IPv6 DNS and the UI has no field to change it, so clients that bypass Tailscale can escape Pi-hole over IPv6. That is a known gap, not a hidden one.
+Pi-hole v6 answers DNS on `192.168.1.3:53` over TCP and UDP and serves its admin UI on `:80`. It forwards to exactly one upstream: `unbound#5335` on the private `pihole_default` Docker network. No Google, Cloudflare or ISP resolver is configured. Unbound (`klutchell/unbound:latest`, 128 MB limit) resolves from the root servers, validates DNSSEC with an RFC 5011 trust anchor (`/var/unbound/root.key`), enables `qname-minimisation`, prefetch and serve-expired, and only accepts queries from `127.0.0.0/8`, `192.168.1.0/24`, `172.16.0.0/12` and `100.64.0.0/10`. Its host port is published only on `127.0.0.1:5335` for diagnostics, so LAN and tailnet clients still go through Pi-hole. The StevenBlack list blocks about 77,000 domains and returns `0.0.0.0` for sinkholed names. IPv4 filtering is complete. The ZTE router advertisement still hands out `fe80::1` as IPv6 DNS and the UI has no field to change it, so clients that bypass Tailscale can escape Pi-hole over IPv6. That is a known gap, not a hidden one.
+
+DNSSEC is validated end to end, not just advertised: `sigfail.verteiltesysteme.net` returns `SERVFAIL` (invalid signature rejected) and `sigok.verteiltesysteme.net` returns `NOERROR` with the `AD` flag. Sentinel checks both every 30 s and can restart Unbound automatically if resolution stops.
+
+### Active Defense — CrowdSec IDS/IPS
+
+CrowdSec runs from `docker/security/` with the `crowdsecurity/linux`, `crowdsecurity/sshd` and `crowdsecurity/nginx` collections. It reads host SSH events from `/var/log/auth.log` (rsyslog forwards journald, because Debian 12 does not create `auth.log` by default) and its Local API is published only on `127.0.0.1:8085`. The host runs `crowdsec-firewall-bouncer-iptables` as a systemd service, with jumps in `INPUT` and `DOCKER-USER`, so bans cover both host services and published containers. Docker rules and Tailscale chains are left untouched.
+
+The whitelist is explicit and loaded as a local parser (`parsers/s02-enrich/mywhitelists.yaml`): `127.0.0.1`, `192.168.1.0/24`, `100.64.0.0/10` (the whole Tailscale mesh, including Node 2) and `172.16.0.0/12` (Docker networks). A failed SSH login from a LAN address is parsed, matched by the private whitelist and ignored before it can create a decision; Node 2 and SSH access are never at risk. Sentinel surfaces the active decision count, recent alerts, whitelist hits, and the bouncer's last pull in Mission Control.
 
 Tailscale links Node 1, Node 2, an iPhone and a MacBook. Funnel is disabled. `tailscale serve --bg http://127.0.0.1:8081` publishes qBittorrent at `https://server.tailbd32c4.ts.net` to the tailnet only. No router port is forwarded. SSH, Jellyfin, Nextcloud, Immich and Portainer stay on LAN or tailnet addresses.
 
@@ -105,9 +116,9 @@ Steady-state RSS is 5.5 to 5.6 MiB, well under the 32 MB cap. The container peak
 `homelab-sentinel` runs on Node 1 as a host-network, privileged Python 3.11 service (FastAPI + APScheduler) exposed at `:9090` (`http://192.168.1.3:9090`). It keeps a live digital twin of the homelab and performs deterministic monitoring with optional LLM-assisted diagnosis.
 
 - **Digital Twin (`twin_engine.py`):** auto-discovers Docker containers (state, health, networks, mounts and CPU/RAM stats), host telemetry (CPU temperature, RAM, `/dev/sda1` with early alert at 92%, Tailscale interface and QuickSync `/dev/dri/renderD128`) and physical/network nodes: ZTE gateway `192.168.1.1`, Nexxt AP `192.168.1.254`, OptiPlex host `192.168.1.3`, **`homelab-node2` `192.168.1.4` (activo 24/7, crítico, conectado a la LAN/AP Nexxt; AMD FX-8300, 4 GB RAM, RX 550, SSD 240 GB + HDD 1 TB `/mnt/storage`, BIOS auto-encendido)** and TCL Android TV 12 `192.168.1.8`. Detects/saves Node 2 MAC (ARP/ChatOps config) and keeps Wake-on-LAN as a manual recovery action in the node card. Time series, incidents and repair history are stored in SQLite (`docker/sentinel/data/sentinel.db`).
-- **Deep L7 Probes (`probes.py`, every 30 s):** Threadfin (`/m3u/threadfin.m3u`, `/xmltv/threadfin.xml`, `docker/threadfin/logs/last_run.json` for active-channel/sync health), Pi-hole real DNS resolution and filtering latency, Nextcloud `/status.php`, Immich `/api/server/ping` plus `/nextcloud-photos:ro` mount verification, Jellyfin `/System/Info/Public`, disk margin on `/dev/sda1`, container/log scans for `unhealthy`/`restarting` states and patterns (`OOM`, `FATAL`, `I/O error`, `connection refused`) with `optiplex-chatops` transient Telegram polling noise filtered (`[WARN]` `EFATAL`/`ETIMEDOUT`/`ECONNRESET`/`ENOTFOUND` to `api.telegram.org`), **Node 2 probes** (Portainer Agent `192.168.1.4:9001` TCP/TLS, Immich ML `http://192.168.1.4:3003/ping`, SSH metrics with RAM early alert >85% of 4 GB and `/mnt/storage` free space), and **NFS offload probe** validating `/mnt/node2-storage` (Node 1 ← Node 2) is mounted/accessible, alerting if the link drops.
-- **Cognitive Brain & Guarded Auto-Healing (`ai_brain.py`, `healer.py`):** a deterministic detector runs every 30 s with 0 LLM tokens in normal state. When anomalies are found it escalates to `SENTINEL_LLM_PROVIDER` (`gemini|openrouter|openai`, `SENTINEL_API_KEY`) with digital-twin context and the last 60 log lines of the affected service (Gemini: `X-goog-api-key`, `gemini-flash-latest` primary, `gemini-flash-lite-latest` fallback), falling back to an offline rule engine when no key/internet/provider response is available. **Tier 1 (automatic, max 2 actions / 30 min / service):** restart hung/unhealthy containers, run `threadfin_sync.sh --publish` when Threadfin M3U/EPG is empty, clean safe temporary caches if `/dev/sda1` exceeds 95%, and restart remote Immich ML on Node 2 (SSH, via nsenter/host key) when ML is down while `192.168.1.4` is online. **Tier 2 (one-tap approval):** sends an ntfy notification (`NTFY_TOPIC`) in Spanish with diagnosis and signed HTTP Approve/Ignore actions (30 min cooldown per service/anomaly type while pending or ignored), including critical Node 2-down/NFS-link alerts (WoL available as manual recovery/action).
-- **Mission Control (`http://192.168.1.3:9090`):** dark-mode dashboard with interactive digital-twin map (ZTE → Nexxt → OptiPlex/Node 2/TCL TV → Containers), `/dev/sda1` meter, live auto-repair/incident feed, “Auditar Todo con IA Ahora”, and a console for questions about state/logs. Manual audits run asynchronously (`asyncio.to_thread` for heavy probes/collection) so `/api/state` polling stays responsive (no UI freeze/`Failed to fetch` during audit), the audit modal renders an executive report (general state of both nodes, summary of 9 main L7 probes, anomalies and Gemini diagnosis) with the full technical payload in a collapsible `<details>` JSON block, and console replies render safe Markdown (headings, bold, inline/fenced code, lists).
+- **Deep L7 Probes (`probes.py`, every 30 s):** Threadfin (`/m3u/threadfin.m3u`, `/xmltv/threadfin.xml`, `docker/threadfin/logs/last_run.json` for active-channel/sync health), Pi-hole real DNS resolution and filtering latency, **Unbound DNSSEC** (`127.0.0.1:5335`: normal resolution, `sigfail` must return `SERVFAIL`, `sigok` must return `NOERROR`+`AD`), **CrowdSec IPS** (`cscli metrics`, active `decisions`, recent `alerts`, bouncer last pull and the private whitelist), Nextcloud `/status.php`, Immich `/api/server/ping` plus `/nextcloud-photos:ro` mount verification, Jellyfin `/System/Info/Public`, disk margin on `/dev/sda1`, container/log scans for `unhealthy`/`restarting` states and patterns (`OOM`, `FATAL`, `I/O error`, `connection refused`) with `optiplex-chatops` transient Telegram polling noise filtered (`[WARN]` `EFATAL`/`ETIMEDOUT`/`ECONNRESET`/`ENOTFOUND` to `api.telegram.org`), **Node 2 probes** (Portainer Agent `192.168.1.4:9001` TCP/TLS, Immich ML `http://192.168.1.4:3003/ping`, SSH metrics with RAM early alert >85% of 4 GB and `/mnt/storage` free space), and **NFS offload probe** validating `/mnt/node2-storage` (Node 1 ← Node 2) is mounted/accessible, alerting if the link drops.
+- **Cognitive Brain & Guarded Auto-Healing (`ai_brain.py`, `healer.py`):** a deterministic detector runs every 30 s with 0 LLM tokens in normal state. When anomalies are found it escalates to `SENTINEL_LLM_PROVIDER` (`gemini|openrouter|openai`, `SENTINEL_API_KEY`) with digital-twin context and the last 60 log lines of the affected service (Gemini: `X-goog-api-key`, `gemini-flash-latest` primary, `gemini-flash-lite-latest` fallback), falling back to an offline rule engine when no key/internet/provider response is available. **Tier 1 (automatic, max 2 actions / 30 min / service):** restart hung/unhealthy containers, restart Unbound when DNS stops resolving, restart CrowdSec when its LAPI/engine is down, run `threadfin_sync.sh --publish` when Threadfin M3U/EPG is empty, clean safe temporary caches if `/dev/sda1` exceeds 95%, and restart remote Immich ML on Node 2 (SSH, via nsenter/host key) when ML is down while `192.168.1.4` is online. **Tier 2 (one-tap approval):** sends an ntfy notification (`NTFY_TOPIC`) in Spanish with diagnosis and signed HTTP Approve/Ignore actions (30 min cooldown per service/anomaly type while pending or ignored), including critical Node 2-down/NFS-link alerts (WoL available as manual recovery/action).
+- **Mission Control (`http://192.168.1.3:9090`):** dark-mode dashboard with interactive digital-twin map (ZTE → Nexxt → OptiPlex/Node 2/TCL TV → Containers), `/dev/sda1` meter, live auto-repair/incident feed, “Auditar Todo con IA Ahora”, and a console for questions about state/logs. Manual audits run asynchronously (`asyncio.to_thread` for heavy probes/collection) so `/api/state` polling stays responsive (no UI freeze/`Failed to fetch` during audit), the audit modal renders an executive report (general state of both nodes, summary of 11 main L7 probes, anomalies and Gemini diagnosis) with the full technical payload in a collapsible `<details>` JSON block, and console replies render safe Markdown (headings, bold, inline/fenced code, lists).
 
 Runtime config: `docker/sentinel/.env` (see `.env.example`). State/logs DB lives in `docker/sentinel/data/` (ignored by Git).
 
@@ -159,11 +170,18 @@ HomeLab/
 │   │       └── html/custom-theme.css
 │   ├── nextcloud/                Nextcloud and its external volume
 │   │   └── docker-compose.yml
-│   ├── pihole/                   DNS sinkhole
+│   ├── pihole/                   DNS sinkhole + recursive Unbound
 │   │   ├── docker-compose.yml
+│   │   ├── unbound/homelab.conf
 │   │   └── .env.example
 │   ├── portainer/                Docker management UI
 │   │   └── docker-compose.yml
+│   ├── security/                 CrowdSec IDS/IPS, whitelist and bouncer
+│   │   ├── docker-compose.yml
+│   │   ├── .gitignore
+│   │   └── crowdsec/
+│   │       ├── parsers/s02-enrich/mywhitelists.yaml
+│   │       └── acquis.d/homelab.yaml
 │   ├── sentinel/                 Digital twin, L7 probes and AI auto-healing
 │   │   ├── app/
 │   │   │   ├── main.py
@@ -206,7 +224,7 @@ HomeLab/
 Deployment rules:
 
 - Every change to a compose file or shared configuration starts with a timestamped copy under `/home/mrdavid/backups-compose/`. Rollback is a file copy, not a rebuild.
-- Memory and CPU limits are explicit on containers that can grow: Immich 2 GB and 2 CPUs, PostgreSQL 768 MB and 1 CPU, Valkey 256 MB and 0.5 CPU, Immich ML 2560 MB and 6 CPUs, Threadfin 512 MB and 1.5 CPUs, Nginx 32 MB. Jellyfin and the bot run without hard caps because they need host devices or host networking.
+- Memory and CPU limits are explicit on containers that can grow: Immich 2 GB and 2 CPUs, PostgreSQL 768 MB and 1 CPU, Valkey 256 MB and 0.5 CPU, Immich ML 2560 MB and 6 CPUs, Unbound 128 MB, CrowdSec 256 MB, Threadfin 512 MB and 1.5 CPUs, Nginx 32 MB. Jellyfin and the bot run without hard caps because they need host devices or host networking.
 - Secrets live in `.env` files excluded by Git. `.env.example` files contain placeholders only. No database, config directory, media file, model cache, playlist, EPG dump or log is tracked.
 - Scripts use `set -euo pipefail`, log through `logger` and stdout, and return a non-zero status only when an operation that should have completed did not.
 - Node 2 uses UUID mounts and never writes to the Kingston system SSD. The Toshiba HDD is the only data disk.
@@ -217,6 +235,8 @@ A quick health check from the administration host:
 
 ```bash
 ssh homelab 'docker ps --format "table {{.Names}}\t{{.Status}}"'
+ssh homelab 'dig +short @127.0.0.1 github.com && dig @127.0.0.1 -p 5335 sigfail.verteiltesysteme.net A +dnssec | grep status'
+ssh homelab 'docker exec crowdsec cscli decisions list && docker exec crowdsec cscli bouncers list'
 ssh homelab 'sudo tailscale serve status'
 ssh homelab 'ssh -i ~/.ssh/node2_bot mrdavid@192.168.1.4 "findmnt /mnt/storage && df -h /mnt/storage"'
 ```

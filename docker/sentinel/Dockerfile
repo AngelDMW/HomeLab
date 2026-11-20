@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     docker.io \
     iproute2 \
+    iptables \
     iputils-ping \
     procps \
     util-linux \

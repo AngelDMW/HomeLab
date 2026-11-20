@@ -41,6 +41,23 @@ def analyze(probes, twin):
         st = p.get('status')
         if st in ('down','error'):
             anomalies.append({'component':p.get('name',key),'severity':'critical','summary':f"{p.get('name',key)} no responde ({p.get('endpoint') or p.get('port')})",'tier':2,'action':'restart_container','params':{'container': key if key!='pihole' else 'pihole'},'details':{'error':p.get('error'),'status':st}})
+    # Unbound: resolución recursiva + validación DNSSEC
+    ub = probes.get('unbound_dnssec') or {}
+    ub_st = ub.get('status')
+    if ub_st in ('down','error'):
+        anomalies.append({'component':'Unbound DNSSEC','severity':'critical','summary':'Unbound (127.0.0.1:5335) no resuelve; Pi-hole se queda sin upstream recursivo','tier':1,'action':'restart_unbound','params':{},'details':ub})
+    elif ub.get('dnssec_ok') is False:
+        anomalies.append({'component':'Unbound DNSSEC','severity':'warning','summary':'Unbound responde pero la validación DNSSEC no rechaza firmas inválidas (posible degradación)','tier':0,'action':None,'params':{},'details':ub})
+    # CrowdSec: motor IPS y bouncer de firewall
+    cs = probes.get('crowdsec_ips') or {}
+    cs_st = cs.get('status')
+    if cs_st in ('down','error'):
+        anomalies.append({'component':'CrowdSec IPS','severity':'warning','summary':'CrowdSec no responde o su LAPI no está operativo; defensa activa degradada','tier':1,'action':'restart_container','params':{'container':'crowdsec'},'details':cs})
+    elif cs_st == 'degraded' or cs.get('whitelist_loaded') is False or cs.get('bouncer_ok') is False:
+        reasons = []
+        if not cs.get('bouncer_ok'): reasons.append('bouncer de firewall sin pull reciente')
+        if cs.get('whitelist_loaded') is False: reasons.append('whitelist privada no cargada')
+        anomalies.append({'component':'CrowdSec IPS','severity':'warning','summary':'CrowdSec activo pero con defensa incompleta: ' + (', '.join(reasons) or 'estado degradado'),'tier':0,'action':None,'params':{},'details':cs})
     # immich mount / disk margin note
     imm = probes.get('immich') or {}
     if imm.get('mount_nextcloud_photos_ro') is False:
@@ -87,7 +104,7 @@ def analyze(probes, twin):
 def _compose_context(anomaly, probes, twin):
     comp = anomaly.get('component')
     # map component to container name for logs
-    cmap = {'Threadfin':'threadfin','Pi-hole':'pihole','Nextcloud':'nextcloud','Immich':'immich-server','Jellyfin':'jellyfin','host-disk':None,'homelab-node2':None,'node2-portainer':None,'node2-immich-ml':None}
+    cmap = {'Threadfin':'threadfin','Pi-hole':'pihole','Nextcloud':'nextcloud','Immich':'immich-server','Jellyfin':'jellyfin','Unbound DNSSEC':'unbound','CrowdSec IPS':'crowdsec','host-disk':None,'homelab-node2':None,'node2-portainer':None,'node2-immich-ml':None}
     cname = cmap.get(comp, comp)
     logs = get_container_logs(cname, 60) if cname else ''
     # compact twin
@@ -111,6 +128,12 @@ def offline_diagnosis(anomaly, probes, twin):
         return f"Diagnóstico (motor offline): {summary}. Puede requerir re-sincronización/publicación de la lista curada o revisión de fuentes; se sugiere validar last_run.json y sync.log."
     if action == 'restart_container':
         return f"Diagnóstico (motor offline): {summary}. Un reinicio controlado del contenedor suele recuperar el servicio si está colgado/unhealthy. Revisar logs recientes para causa raíz (OOM, I/O, conexión rechazada)."
+    if comp == 'Unbound DNSSEC' or comp == 'unbound':
+        if anomaly.get('details', {}).get('status') == 'down':
+            return "Diagnóstico (motor offline): Unbound no responde en 127.0.0.1:5335. Pi-hole queda sin upstream y la resolución de toda la LAN falla. Acción tier 1: reiniciar unbound; si persiste, revisar el bind de 5335 y el healthcheck del contenedor."
+        return "Diagnóstico (motor offline): Unbound resuelve pero la validación DNSSEC no se comporta como se espera (sigfail debe dar SERVFAIL y sigok NOERROR+AD). Revisar root.key/ancla de confianza y conectividad UDP/53 saliente antes de reiniciar."
+    if comp == 'CrowdSec IPS' or comp == 'crowdsec':
+        return "Diagnóstico (motor offline): CrowdSec/LAPI o el bouncer de firewall no están operativos. La whitelist de LAN/Tailscale/Docker debe permanecer cargada; reiniciar el contenedor y verificar el servicio crowdsec-firewall-bouncer y el pull de decisiones."
     return f"Diagnóstico (motor offline): {summary}. Se recomienda revisión manual y verificación de dependencias del servicio."
 
 async def llm_diagnosis(anomaly, probes, twin):

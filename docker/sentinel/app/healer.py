@@ -118,6 +118,7 @@ def restart_node2_ml(params=None):
 
 ACTION_HANDLERS = {
     'restart_container': lambda p: restart_container(p.get('container') or p.get('component')),
+    'restart_unbound': lambda p: restart_container('unbound'),
     'threadfin_publish': lambda p: run_threadfin_publish(),
     'clean_caches': lambda p: clean_safe_caches(),
     'wake_node2': lambda p: wake_node2_action(p),

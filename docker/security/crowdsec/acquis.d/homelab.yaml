@@ -1,0 +1,8 @@
+---
+# SSH del host vía rsyslog (/var/log/auth.log). Debian 12 no crea auth.log
+# de fábrica: el despliegue instala rsyslog y journald reenvía a syslog.
+source: file
+filenames:
+  - /var/log/auth.log
+labels:
+  type: syslog

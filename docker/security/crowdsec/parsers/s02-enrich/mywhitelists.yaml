@@ -1,0 +1,11 @@
+name: crowdsecurity/mywhitelists
+description: "HomeLab: nunca bloquear loopback, LAN, malla Tailscale ni redes Docker"
+whitelist:
+  reason: "redes privadas del HomeLab (acceso SSH/Nodo 2/Tailscale/Docker)"
+  ip:
+    - "127.0.0.1"
+    - "::1"
+  cidr:
+    - "192.168.1.0/24"
+    - "100.64.0.0/10"
+    - "172.16.0.0/12"

@@ -1,0 +1,4 @@
+# Estado persistente de CrowdSec (hub, DB, credenciales) — nunca versionar
+crowdsec/config/
+crowdsec/data/
+*.log

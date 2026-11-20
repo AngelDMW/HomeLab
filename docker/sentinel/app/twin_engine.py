@@ -128,6 +128,42 @@ def quicksync_info():
     exists = os.path.exists(dev)
     return {'device': dev, 'present': exists}
 
+def security_posture():
+    """Postura de defensa activa: motores y cadena del bouncer en el host."""
+    posture = {'dns_mode': 'recursive-unbound-dnssec', 'containers': {}, 'firewall_bouncer': {}}
+    cli = docker_client()
+    if cli:
+        for name in ('unbound', 'crowdsec'):
+            try:
+                c = cli.containers.get(name)
+                st = c.attrs.get('State') or {}
+                posture['containers'][name] = {
+                    'status': c.status,
+                    'health': (st.get('Health') or {}).get('Status'),
+                    'restarting': st.get('Restarting', False),
+                }
+            except Exception as e:
+                posture['containers'][name] = {'status': 'missing', 'error': str(e)}
+    rules = []
+    fw = posture['firewall_bouncer']
+    try:
+        r = subprocess.run(['iptables', '-S', 'CROWDSEC_CHAIN'],
+                           capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            rules = [ln for ln in r.stdout.splitlines() if ln.strip()]
+            fw.update({
+                'chain_present': True,
+                'rules': len([ln for ln in rules if ln.startswith('-A')]),
+                'deny_rule_active': any('-j DROP' in ln for ln in rules),
+            })
+        else:
+            fw.update({'chain_present': False, 'error': (r.stderr or '').strip()})
+    except Exception as e:
+        fw.update({'chain_present': False, 'error': str(e)})
+    cfg = os.path.join(settings.hostfs, 'etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml')
+    fw['config_present'] = os.path.exists(cfg)
+    return posture
+
 
 
 def _read_node2_mac():
@@ -371,6 +407,7 @@ def collect_twin():
         'ssd': disk_info(),
         'tailscale': tailscale_info(),
         'quicksync': quicksync_info(),
+        'security': security_posture(),
     }
     node2_ping = ping_host(settings.node2_host)
     node2_mac = get_node2_mac()

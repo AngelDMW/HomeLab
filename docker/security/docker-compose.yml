@@ -1,0 +1,28 @@
+services:
+  crowdsec:
+    container_name: crowdsec
+    image: crowdsecurity/crowdsec:latest
+    restart: unless-stopped
+    environment:
+      TZ: 'America/Santo_Domingo'
+      CUSTOM_HOSTNAME: 'homelab-node1'
+      # Colecciones base solicitadas. La appsec/online API no se usa.
+      COLLECTIONS: 'crowdsecurity/linux crowdsecurity/sshd crowdsecurity/nginx'
+      DISABLE_ONLINE_API: 'true'
+    volumes:
+      - ./crowdsec/config:/etc/crowdsec
+      - ./crowdsec/data:/var/lib/crowdsec/data
+      # Logs del host (SSH vía rsyslog) en solo lectura.
+      - /var/log:/var/log:ro
+      # Overrides versionados: whitelist privada y adquisición de auth.log.
+      - ./crowdsec/parsers/s02-enrich/mywhitelists.yaml:/etc/crowdsec/parsers/s02-enrich/mywhitelists.yaml:ro
+      - ./crowdsec/acquis.d/homelab.yaml:/etc/crowdsec/acquis.d/homelab.yaml:ro
+    ports:
+      # LAPI solo en loopback; el bouncer de iptables corre en el host.
+      - "127.0.0.1:8085:8080"
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

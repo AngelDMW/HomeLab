@@ -154,19 +154,21 @@ function badge(st){
 }
 
 function probeLabel(k,p){
-  const names = {threadfin:"Threadfin", pihole:"Pi-hole", nextcloud:"Nextcloud", immich:"Immich", jellyfin:"Jellyfin", disk:"Disco /dev/sda1", containers_logs:"Contenedores/Logs", node2_portainer:"Nodo 2 Portainer Agent", node2_immich_ml:"Nodo 2 Immich ML", node2_metrics:"Nodo 2 (métricas)", nfs_node2_storage:"NFS /mnt/node2-storage"};
+  const names = {threadfin:"Threadfin", pihole:"Pi-hole", unbound_dnssec:"Unbound DNSSEC", crowdsec_ips:"CrowdSec IPS", nextcloud:"Nextcloud", immich:"Immich", jellyfin:"Jellyfin", disk:"Disco /dev/sda1", containers_logs:"Contenedores/Logs", node2_portainer:"Nodo 2 Portainer Agent", node2_immich_ml:"Nodo 2 Immich ML", node2_metrics:"Nodo 2 (métricas)", nfs_node2_storage:"NFS /mnt/node2-storage"};
   return names[k] || (p && p.name) || k;
 }
 
 function renderProbes(state){
   const probes = state.probes || {};
   const items = [];
-  const order = ["threadfin","pihole","nextcloud","immich","jellyfin"];
+  const order = ["threadfin","pihole","unbound_dnssec","crowdsec_ips","nextcloud","immich","jellyfin"];
   for(const k of order){
     const p = probes[k]; if(!p) continue;
     let extra = "";
     if(k==="threadfin") extra = ` · ${p.channels??0} canales${p.channels_dropped?" (caída detectada)":""}${p.sync_failed?" · sync falló":""}`;
     if(k==="pihole") extra = ` · DNS ${p.resolve_ok?"OK":"Fallo"} (${p.resolve_latency_ms??"?"} ms) · filtrado ${p.filtering_active?"activo":"?"}`;
+    if(k==="unbound_dnssec") extra = ` · DNS ${p.resolve_ok?"OK":"Fallo"} · DNSSEC ${p.dnssec_ok?"validando":"degradado"} · sigfail ${p.sigfail?.rcode||"?"}`;
+    if(k==="crowdsec_ips") extra = ` · ${p.decisions??0} bloqueos activos · ${p.alerts??0}${p.alerts_truncated?"+":""} alertas · bouncer ${p.bouncer_ok?"OK":"sin pull"} · whitelist ${p.whitelist_loaded?"activa":"NO"}`;
     if(k==="immich") extra = ` · /nextcloud-photos:ro ${p.mount_nextcloud_photos_ro===true?"OK":p.mount_nextcloud_photos_ro===false?"NO OK":"?"}`;
     items.push(`<div class="probe"><div><strong>${esc(p.name||k)}</strong><span class="muted small">${esc(extra)}</span></div>${badge(p.status)}</div>`);
   }
@@ -226,7 +228,7 @@ function render(state){
 function buildAuditReport(audit){
   const twin = audit.twin || {}; const probes = audit.probes || {}; const nodes = twin.nodes || {};
   const host = nodes.host || {}; const node2 = nodes.node2 || {}; const anomalies = audit.anomalies || [];
-  const probeKeys = ["threadfin","pihole","nextcloud","immich","jellyfin","disk","containers_logs","node2_portainer","node2_immich_ml"]; // 9 sondas principales
+  const probeKeys = ["threadfin","pihole","unbound_dnssec","crowdsec_ips","nextcloud","immich","jellyfin","disk","containers_logs","node2_portainer","node2_immich_ml"]; // 11 sondas principales
   const overallOk = anomalies.filter(a=>a.severity==="critical").length===0;
   function probeRow(k){
     const p = probes[k] || {}; const name = probeLabel(k,p);
@@ -235,6 +237,8 @@ function buildAuditReport(audit){
     let detail = "";
     if(k==="threadfin") detail = `${p.channels??0} canales, M3U ${p.m3u_ok?"OK":"Fallo"}, XML ${p.xml_ok?"OK":"Fallo"}`;
     else if(k==="pihole") detail = `DNS ${p.resolve_ok?"OK":"Fallo"} ${p.resolve_latency_ms!=null? "("+p.resolve_latency_ms+" ms)":""}, filtrado ${p.filtering_active?"activo":"?"}`;
+    else if(k==="unbound_dnssec") detail = `Normal ${p.resolve?.rcode||"?"} · sigfail ${p.sigfail?.rcode||"?"} · sigok ${p.sigok?.rcode||"?"}${p.sigok?.ad?" (AD)":""}`;
+    else if(k==="crowdsec_ips") detail = `${p.decisions??0} bloqueos activos · ${p.alerts??0}${p.alerts_truncated?"+":""} alertas · bouncer ${p.bouncer_ok?"OK":"sin pull"} · ${p.acquisition?.lines_whitelisted??0} líneas whitelist`;
     else if(k==="nextcloud") detail = p.details && p.details.versionstring ? `v${p.details.versionstring}` : (p.endpoint||"");
     else if(k==="immich") detail = `/nextcloud-photos:ro ${p.mount_nextcloud_photos_ro===true?"OK":p.mount_nextcloud_photos_ro===false?"NO OK":"?"}`;
     else if(k==="jellyfin") detail = p.details && p.details.Version ? `v${p.details.Version}` : "";

@@ -1,7 +1,8 @@
 import json, os, re, socket, subprocess, time
+from datetime import datetime, timezone
 from urllib.parse import urljoin
 import httpx
-import dns.resolver
+import dns.flags, dns.message, dns.query, dns.rcode, dns.resolver
 from .config import settings
 from .db import add_sample, kv_get, kv_set
 from .twin_engine import docker_client, node2_metrics, get_node2_mac
@@ -94,6 +95,150 @@ def probe_pihole():
         'blocked_test': blocked, 'filtering_active': filtering,
         'status': status
     }
+
+def probe_unbound_dnssec():
+    """Unbound recursivo de raíz: resolución normal + validación DNSSEC real."""
+    def q(name):
+        t0 = time.time()
+        try:
+            msg = dns.message.make_query(name, 'A', want_dnssec=True)
+            resp = dns.query.udp(msg, '127.0.0.1', port=5335, timeout=4.0)
+            answers = []
+            for rrset in resp.answer[:2]:
+                answers.extend(rr.to_text() for rr in rrset)
+            return {
+                'ok': resp.rcode() == dns.rcode.NOERROR,
+                'rcode': dns.rcode.to_text(resp.rcode()),
+                'ad': bool(resp.flags & dns.flags.AD),
+                'answers': answers[:4],
+                'latency_ms': round((time.time() - t0) * 1000, 1),
+            }
+        except Exception as e:
+            return {'ok': False, 'rcode': None, 'ad': False, 'error': str(e),
+                    'latency_ms': round((time.time() - t0) * 1000, 1)}
+
+    normal = q('github.com')
+    sigfail = q('sigfail.verteiltesysteme.net')
+    sigok = q('sigok.verteiltesysteme.net')
+    resolve_ok = normal.get('rcode') == 'NOERROR'
+    # Firma inválida => SERVFAIL; firma válida => NOERROR con flag AD.
+    dnssec_reject_ok = sigfail.get('rcode') == 'SERVFAIL'
+    dnssec_accept_ok = sigok.get('rcode') == 'NOERROR' and sigok.get('ad') is True
+    dnssec_ok = dnssec_reject_ok and dnssec_accept_ok
+    if not resolve_ok:
+        status = 'down'
+    elif not dnssec_ok:
+        status = 'degraded'
+    else:
+        status = 'ok'
+    return {
+        'name': 'Unbound DNSSEC', 'port': 5335,
+        'resolve_ok': resolve_ok, 'resolve': normal,
+        'dnssec_ok': dnssec_ok,
+        'dnssec_reject_ok': dnssec_reject_ok, 'sigfail': sigfail,
+        'dnssec_accept_ok': dnssec_accept_ok, 'sigok': sigok,
+        'status': status,
+    }
+
+
+def _crowdsec_exec(args, timeout=8):
+    cli = docker_client()
+    if not cli:
+        return None, 'docker unavailable'
+    try:
+        c = cli.containers.get('crowdsec')
+        if c.status != 'running':
+            return None, f'container {c.status}'
+        res = c.exec_run(args)
+        out = (res.output or b'').decode('utf-8', 'ignore')
+        if res.exit_code != 0:
+            return None, (out.strip() or f'exit {res.exit_code}')
+        return out, None
+    except Exception as e:
+        return None, str(e)
+
+
+def _cscli_json(args):
+    out, err = _crowdsec_exec(['cscli'] + args + ['-o', 'json'])
+    if out is None:
+        return None, err
+    try:
+        return json.loads(out), None
+    except Exception as e:
+        return None, f'json parse: {e}'
+
+
+def probe_crowdsec_ips():
+    """CrowdSec LAPI/IPS: motor activo, bouncer, whitelist y amenazas bloqueadas."""
+    decisions, dec_err = _cscli_json(['decisions', 'list'])
+    alerts, alerts_err = _cscli_json(['alerts', 'list', '--limit', '100'])
+    bouncers, bouncers_err = _cscli_json(['bouncers', 'list'])
+    parsers, parsers_err = _cscli_json(['parsers', 'list'])
+    metrics, metrics_err = _cscli_json(['metrics'])
+
+    errors = {k: v for k, v in {
+        'decisions': dec_err, 'alerts': alerts_err, 'bouncers': bouncers_err,
+        'parsers': parsers_err, 'metrics': metrics_err,
+    }.items() if v}
+
+    decisions = decisions if isinstance(decisions, list) else []
+    alerts = alerts if isinstance(alerts, list) else []
+    bouncers = bouncers if isinstance(bouncers, list) else []
+    parser_list = (parsers or {}).get('parsers') if isinstance(parsers, dict) else []
+    parser_list = parser_list if isinstance(parser_list, list) else []
+
+    whitelist_loaded = any(
+        p.get('name') == 'crowdsecurity/mywhitelists'
+        and 'enabled' in str(p.get('status', '')).lower()
+        for p in parser_list
+    )
+
+    active_bouncers = []
+    now = datetime.now(timezone.utc)
+    for b in bouncers:
+        if not isinstance(b, dict) or b.get('revoked'):
+            continue
+        age = None
+        lp = b.get('last_pull')
+        if lp:
+            try:
+                dt = datetime.fromisoformat(str(lp).replace('Z', '+00:00'))
+                age = round((now - dt).total_seconds(), 1)
+            except Exception:
+                age = None
+        active_bouncers.append({'name': b.get('name'), 'type': b.get('type'),
+                                'last_pull_age_s': age,
+                                'validated': b.get('validated', True)})
+    bouncer_ok = any(
+        (b.get('last_pull_age_s') is not None and b.get('last_pull_age_s') <= 180)
+        for b in active_bouncers
+    )
+
+    acq = (metrics or {}).get('acquisition') if isinstance(metrics, dict) else {}
+    acq = acq if isinstance(acq, dict) else {}
+    lines_read = sum(int(v.get('reads') or 0) for v in acq.values() if isinstance(v, dict))
+    lines_parsed = sum(int(v.get('parsed') or 0) for v in acq.values() if isinstance(v, dict))
+    lines_whitelisted = sum(int(v.get('whitelisted') or 0) for v in acq.values() if isinstance(v, dict))
+
+    engine_active = bool(metrics is not None and not metrics_err)
+    if not engine_active:
+        status = 'down'
+    elif not bouncer_ok or not whitelist_loaded:
+        status = 'degraded'
+    else:
+        status = 'ok'
+    return {
+        'name': 'CrowdSec IPS', 'port': 8085,
+        'engine_active': engine_active, 'lapi_ok': bool(metrics is not None),
+        'decisions': len(decisions), 'alerts': len(alerts),
+        'alerts_truncated': len(alerts) >= 100,
+        'bouncers': active_bouncers, 'bouncer_ok': bouncer_ok,
+        'whitelist_loaded': whitelist_loaded,
+        'acquisition': {'lines_read': lines_read, 'lines_parsed': lines_parsed,
+                        'lines_whitelisted': lines_whitelisted},
+        'status': status, 'errors': errors or None,
+    }
+
 
 def probe_nextcloud():
     # try localhost/127.0.0.1 first to avoid trusted-domain issues; fallback to LAN IP
@@ -342,6 +487,8 @@ def run_all_probes():
     for key, fn in [
         ('threadfin', probe_threadfin),
         ('pihole', probe_pihole),
+        ('unbound_dnssec', probe_unbound_dnssec),
+        ('crowdsec_ips', probe_crowdsec_ips),
         ('nextcloud', probe_nextcloud),
         ('immich', probe_immich),
         ('jellyfin', probe_jellyfin),

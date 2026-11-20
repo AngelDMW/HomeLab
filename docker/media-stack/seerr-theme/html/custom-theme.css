@@ -264,7 +264,7 @@ nav.sidebar a:hover {
   box-shadow: 0 32px 80px rgba(0, 0, 0, 0.65);
   padding: 2.2rem !important;
 }
-#__next form[data-form-type="login"],
+#__next form[data-form-type="login"]::before,
 #__next form:has(input[type="password"])::before {
   background: radial-gradient(120% 120% at 50% 0%, rgba(229, 9, 20, 0.16) 0%, transparent 62%);
   border-radius: 22px;
@@ -273,7 +273,7 @@ nav.sidebar a:hover {
   pointer-events: none;
   position: absolute;
 }
-#__next form[data-form-type="login"],
+#__next form[data-form-type="login"] button[type="submit"],
 #__next form:has(input[type="password"]) button[type="submit"] {
   background: var(--hf-red) !important;
   border-radius: 999px !important;
@@ -281,12 +281,12 @@ nav.sidebar a:hover {
   height: 3rem;
   width: 100%;
 }
-#__next form[data-form-type="login"],
+#__next form[data-form-type="login"] button[type="submit"]:hover,
 #__next form:has(input[type="password"]) button[type="submit"]:hover {
   background: var(--hf-red-hover) !important;
   box-shadow: 0 12px 30px rgba(229, 9, 20, 0.35);
 }
-#__next form[data-form-type="login"],
+#__next form[data-form-type="login"] input,
 #__next form:has(input[type="password"]) input {
   border-radius: 12px !important;
   height: 3rem;
@@ -346,3 +346,169 @@ input[type="radio"] { accent-color: var(--hf-red); }
     transform: none !important;
   }
 }
+
+/* ============================================================
+   HomeFlix · MÓVIL (iOS Safari / iPhone 12 mini 375x812)
+   Añadido 2026-11-19. Se aplica después del tema base.
+   ============================================================ */
+
+/* BUG CRÍTICO corregido: en el tema base, las reglas de login tenían
+   listas de selectores donde el primero era el propio <form>. Eso hacía
+   que el formulario recibiera position:absolute / height:3rem / inset:0 /
+   background radial / border-radius:999px. Se reescriben agrupando bien. */
+#__next form[data-form-type="login"],
+#__next form:has(input[type="password"]) {
+  background: rgba(20, 20, 22, 0.58) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 22px !important;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.65) !important;
+  height: auto !important;
+  inset: auto !important;
+  max-width: 100% !important;
+  padding: 1.5rem !important;
+  position: relative !important;
+  width: auto !important;
+  -webkit-backdrop-filter: blur(26px) saturate(150%);
+  backdrop-filter: blur(26px) saturate(150%);
+}
+#__next form[data-form-type="login"]::before,
+#__next form:has(input[type="password"])::before {
+  background: radial-gradient(120% 120% at 50% 0%, rgba(229, 9, 20, 0.16) 0%, transparent 62%);
+  border-radius: 22px;
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+#__next form[data-form-type="login"] button[type="submit"],
+#__next form:has(input[type="password"]) button[type="submit"] {
+  background: var(--hf-red) !important;
+  border-radius: 999px !important;
+  font-weight: 700 !important;
+  height: 3rem;
+  min-height: 44px;
+  width: 100%;
+}
+#__next form[data-form-type="login"] button[type="submit"]:hover,
+#__next form:has(input[type="password"]) button[type="submit"]:hover {
+  background: var(--hf-red-hover) !important;
+  box-shadow: 0 12px 30px rgba(229, 9, 20, 0.35);
+}
+#__next form[data-form-type="login"] input,
+#__next form:has(input[type="password"]) input {
+  border-radius: 12px !important;
+  height: 3rem;
+}
+
+/* Viewport real en iOS (dvh con fallback para versiones antiguas) */
+#__next {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+@media (max-width: 767px) {
+  html, body, #__next { overflow-x: hidden !important; }
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* Cero zoom accidental al enfocar buscador / cualquier campo */
+  #__next input,
+  #__next select,
+  #__next textarea,
+  #__next [contenteditable="true"] {
+    font-size: 16px !important;
+    max-width: 100%;
+  }
+
+  /* Safe areas en navbar, drawers y modales */
+  #__next header,
+  #__next div[class*="sticky"][class*="top-0"] {
+    padding-top: calc(env(safe-area-inset-top) + 8px);
+  }
+  #__next nav[class*="fixed"][class*="bottom-0"],
+  #__next nav[class*="bottom-0"] {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+  #__next [role="dialog"] > div,
+  #__next .modal {
+    max-width: calc(100vw - 24px) !important;
+    max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important;
+    overflow-y: auto;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+  #__next [role="menu"],
+  #__next [role="listbox"] {
+    max-height: calc(100dvh - 96px - env(safe-area-inset-bottom));
+    overflow-y: auto;
+  }
+
+  /* Carruseles con inercia y snap suave */
+  #__next [class*="overflow-x-auto"],
+  #__next [class*="snap-x"] {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+  }
+  #__next [class*="overflow-x-auto"] > * { scroll-snap-align: start; }
+
+  /* Escala z-index: header < bottom-nav < backdrop < modal < toast */
+  #__next header { z-index: 30 !important; }
+  #__next nav[class*="bottom-0"] { z-index: 35 !important; }
+  #__next [class*="bg-black"][class*="fixed"] { z-index: 40 !important; }
+  #__next [role="dialog"], #__next .modal { z-index: 50 !important; }
+  #__next [role="toast"], #__next [class*="toast"] { z-index: 60 !important; }
+}
+
+/* Ajuste fino 375px (iPhone 12 mini) */
+@media (max-width: 389px) {
+  #__next header { padding-left: 12px; padding-right: 12px; }
+  #__next a[href^="/movie/"],
+  #__next a[href^="/tv/"] { border-radius: 10px; }
+  #__next [role="dialog"] > div,
+  #__next .modal { padding: 1rem !important; }
+  #__next button,
+  #__next a[role="button"] { min-height: 44px; }
+  #__next [class*="text-xs"] { font-size: .75rem; }
+}
+
+/* Táctil real: sin :hover pegajoso y feedback de pulsación limpio */
+@media (hover: none), (pointer: coarse) {
+  #__next a[href^="/movie/"]:hover,
+  #__next a[href^="/tv/"]:hover,
+  button[class*="bg-indigo-"]:hover,
+  a[class*="bg-indigo-"]:hover,
+  .sidebar a:hover,
+  nav.sidebar a:hover,
+  [class*="hover:bg-gray-800"]:hover,
+  [class*="hover:bg-gray-700"]:hover,
+  [class*="hover:bg-gray-600"]:hover {
+    box-shadow: none !important;
+    transform: none !important;
+  }
+  #__next a[href^="/movie/"]:hover img,
+  #__next a[href^="/tv/"]:hover img,
+  #__next .group:hover img { filter: none !important; }
+  #__next a:not([class*="bg-"]):hover { color: inherit !important; }
+
+  #__next a[href^="/movie/"]:active,
+  #__next a[href^="/tv/"]:active,
+  button[class*="bg-indigo-"]:active,
+  a[class*="bg-indigo-"]:active,
+  #__next button:active { transform: scale(0.98) !important; }
+
+  #__next a,
+  #__next button,
+  #__next a[href^="/movie/"],
+  #__next a[href^="/tv/"] {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  #__next a[href^="/movie/"],
+  #__next a[href^="/tv/"] { will-change: auto !important; }
+}
+
+/* Refuerzo cuando el JS detecta iOS / pantalla táctil */
+.hf-touch #__next a[href^="/movie/"]:hover,
+.hf-touch #__next a[href^="/tv/"]:hover { transform: none !important; }

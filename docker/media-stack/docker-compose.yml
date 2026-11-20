@@ -72,7 +72,7 @@ services:
   seerr-theme:
     image: nginx:alpine
     container_name: seerr-theme
-    mem_limit: 32m
+    mem_limit: 64m
     depends_on:
       - jellyseerr
     volumes:

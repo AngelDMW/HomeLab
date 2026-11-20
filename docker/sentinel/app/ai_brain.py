@@ -104,14 +104,20 @@ async def llm_diagnosis(anomaly, probes, twin):
     try:
         async with httpx.AsyncClient(timeout=30.0) as c:
             if provider == 'gemini':
-                model = settings.llm_model or 'gemini-1.5-flash'
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+                models = [settings.llm_model] if settings.llm_model else ['gemini-flash-latest', 'gemini-2.5-flash']
                 body = {"contents":[{"parts":[{"text": prompt}]}]}
-                r = await c.post(url, json=body)
-                if r.status_code >= 400:
-                    return None
-                data = r.json()
-                return data['candidates'][0]['content']['parts'][0]['text']
+                headers = {'X-goog-api-key': key}
+                for model in models:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+                    try:
+                        r = await c.post(url, json=body, headers=headers)
+                        if r.status_code >= 400:
+                            continue
+                        data = r.json()
+                        return data['candidates'][0]['content']['parts'][0]['text']
+                    except Exception:
+                        continue
+                return None
             elif provider == 'openai':
                 model = settings.llm_model or 'gpt-4o-mini'
                 r = await c.post('https://api.openai.com/v1/chat/completions',
@@ -160,11 +166,18 @@ async def answer_question(question, twin, probes):
         try:
             async with httpx.AsyncClient(timeout=30.0) as c:
                 if provider == 'gemini':
-                    model = settings.llm_model or 'gemini-1.5-flash'
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-                    r = await c.post(url, json={"contents":[{"parts":[{"text": prompt}]}]})
-                    if r.status_code < 400:
-                        data = r.json(); return data['candidates'][0]['content']['parts'][0]['text']
+                    models = [settings.llm_model] if settings.llm_model else ['gemini-flash-latest', 'gemini-2.5-flash']
+                    body = {"contents":[{"parts":[{"text": prompt}]}]}
+                    headers = {'X-goog-api-key': key}
+                    for model in models:
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+                        try:
+                            r = await c.post(url, json=body, headers=headers)
+                            if r.status_code < 400:
+                                data = r.json()
+                                return data['candidates'][0]['content']['parts'][0]['text']
+                        except Exception:
+                            continue
                 elif provider == 'openai':
                     model = settings.llm_model or 'gpt-4o-mini'
                     r = await c.post('https://api.openai.com/v1/chat/completions', headers={'Authorization': f'Bearer {key}'}, json={'model': model,'messages':[{'role':'user','content':prompt}]})

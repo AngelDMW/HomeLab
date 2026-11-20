@@ -87,7 +87,7 @@ function renderHost(state){
 }
 
 function badge(st){
-  const s=(st||'unknown').toLower();
+  const s = String(st || "unknown").toLowerCase();
   let cls='ok'; if(['degraded','warning'].includes(s)) cls='degraded'; if(['down','error','critical'].includes(s)) cls='down';
   return `<span class="badge ${cls}">${esc(s)}</span>`;
 }

@@ -1,7 +1,7 @@
 import hashlib, hmac, json, os, subprocess, time, uuid, shutil
 import httpx
 from .config import settings
-from .db import add_repair, count_actions, save_pending_action, get_pending_action, set_pending_status, kv_set
+from .db import add_repair, count_actions, save_pending_action, get_pending_action, set_pending_status, kv_set, find_active_tier2
 from .twin_engine import docker_client
 
 def _sig(action_id, decision):
@@ -148,6 +148,17 @@ def send_ntfy(title, message, actions=None, tags=None, priority=4):
         return False, str(e)
 
 def request_tier2(component, action, params, diagnosis):
+    # dedupe: cooldown 30 min por (servicio, tipo_anomalia) mientras pendiente o ignorada
+    active = find_active_tier2(component, action, cooldown_sec=1800)
+    if active:
+        state = active.get('state')
+        row = active.get('row') or {}
+        if state == 'pending':
+            return {'status': 'pending_existing', 'action_id': row.get('id'), 'notified': False, 'notify_detail': 'deduped: pending action exists'}
+        if state == 'ignored_cooldown':
+            return {'status': 'suppressed_ignored', 'action_id': row.get('id'), 'notified': False, 'notify_detail': 'deduped: ignored within cooldown'}
+        if state == 'recent_tier2':
+            return {'status': 'suppressed_recent', 'notified': False, 'notify_detail': 'deduped: recent tier2 notification in cooldown'}
     action_id = uuid.uuid4().hex[:16]
     save_pending_action(action_id, component, action, params, diagnosis)
     base = settings.public_url.rstrip('/')

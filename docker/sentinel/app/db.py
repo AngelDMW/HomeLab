@@ -162,3 +162,27 @@ def set_pending_status(action_id, status):
     with _lock:
         get_db().execute('UPDATE pending_actions SET status=? WHERE id=?', (status, action_id))
         get_db().commit()
+
+def find_active_tier2(component, action, cooldown_sec=1800):
+    """Return a pending action if one exists for (component,action), else a recently ignored one within cooldown."""
+    since = time.time() - cooldown_sec
+    with _lock:
+        row = get_db().execute(
+            "SELECT * FROM pending_actions WHERE component=? AND action=? AND status='pending' ORDER BY ts DESC LIMIT 1",
+            (component, action)
+        ).fetchone()
+        if row:
+            return {'state': 'pending', 'row': dict(row)}
+        row = get_db().execute(
+            "SELECT * FROM pending_actions WHERE component=? AND action=? AND status='ignored' AND ts>=? ORDER BY ts DESC LIMIT 1",
+            (component, action, since)
+        ).fetchone()
+        if row:
+            return {'state': 'ignored_cooldown', 'row': dict(row)}
+        row = get_db().execute(
+            "SELECT * FROM repairs WHERE component=? AND action=? AND tier=2 AND status IN ('pending_approval','notified') AND ts>=? ORDER BY ts DESC LIMIT 1",
+            (component, action, since)
+        ).fetchone()
+        if row:
+            return {'state': 'recent_tier2', 'row': dict(row)}
+    return None

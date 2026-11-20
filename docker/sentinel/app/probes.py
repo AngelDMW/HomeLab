@@ -206,6 +206,64 @@ def disk_margin_check():
     except Exception as e:
         return {'ok': False, 'error': str(e)}
 
+def probe_nfs_node2_storage():
+    path = '/mnt/node2-storage'
+    res = {
+        'name': 'NFS /mnt/node2-storage',
+        'path': path,
+        'mounted': False,
+        'accessible': False,
+        'mount_type': None,
+        'status': 'down',
+    }
+    try:
+        mounted = os.path.ismount(path)
+        res['mounted'] = mounted
+        # detect fstype
+        try:
+            with open('/proc/mounts') as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 3 and parts[1] == path:
+                        res['mount_type'] = parts[2]
+                        break
+        except Exception:
+            pass
+        if mounted:
+            # accessibility/read test
+            try:
+                os.listdir(path)
+                testfile = os.path.join(path, '.sentinel_nfs_probe')
+                # write test may fail on :ro bind mount inside container; try read-only checks primarily
+                try:
+                    with open(testfile, 'w') as tf:
+                        tf.write('ok')
+                    with open(testfile) as tf:
+                        _ = tf.read()
+                    os.remove(testfile)
+                    res['write_ok'] = True
+                except Exception as we:
+                    res['write_ok'] = False
+                    res['write_error'] = str(we)
+                res['accessible'] = True
+            except Exception as e:
+                res['accessible'] = False
+                res['error'] = str(e)
+        else:
+            res['error'] = 'not mounted'
+        # consider mounted+accessible as ok even if write fails due to ro mount in sentinel
+        if res['mounted'] and res['accessible']:
+            res['ok'] = True
+            res['status'] = 'ok'
+        else:
+            res['ok'] = False
+            res['status'] = 'down'
+    except Exception as e:
+        res['ok'] = False
+        res['status'] = 'error'
+        res['error'] = str(e)
+    return res
+
 
 
 def probe_node2_portainer():
@@ -307,5 +365,9 @@ def run_all_probes():
         results['disk'] = disk_margin_check()
     except Exception as e:
         results['disk'] = {'ok': False, 'error': str(e)}
+    try:
+        results['nfs_node2_storage'] = probe_nfs_node2_storage()
+    except Exception as e:
+        results['nfs_node2_storage'] = {'name':'NFS /mnt/node2-storage','ok': False, 'status': 'error', 'error': str(e)}
     kv_set('last_probes', results)
     return results

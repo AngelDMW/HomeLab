@@ -18,6 +18,7 @@ services:
       - /:/hostfs:ro
       - /home/mrdavid/HomeLab/docker/threadfin/logs:/threadfin_logs:ro
       - /home/mrdavid/HomeLab/docker/threadfin:/home/mrdavid/HomeLab/docker/threadfin
+      - /mnt/node2-storage:/mnt/node2-storage:ro
       - ./data:/app/data
     mem_limit: 512m
     cpus: 1.0

@@ -17,20 +17,25 @@ STATE = {'twin': None, 'probes': None, 'anomalies': [], 'last_cycle': None, 'las
 _scheduler = None
 _lock = asyncio.Lock()
 
+def _collect_and_analyze():
+    try:
+        twin = collect_twin()
+    except Exception as e:
+        twin = {'error': str(e), 'ts': time.time()}
+    try:
+        probes = run_all_probes()
+    except Exception as e:
+        probes = {'error': str(e)}
+    try:
+        anomalies = analyze(probes, twin)
+    except Exception as e:
+        anomalies = []
+    return twin, probes, anomalies
+
 async def process_cycle(manual=False):
     async with _lock:
-        try:
-            twin = collect_twin()
-        except Exception as e:
-            twin = {'error': str(e), 'ts': time.time()}
-        try:
-            probes = run_all_probes()
-        except Exception as e:
-            probes = {'error': str(e)}
-        try:
-            anomalies = analyze(probes, twin)
-        except Exception as e:
-            anomalies = []
+        # run heavy sync collection/probing in a worker thread so /api/state stays responsive
+        twin, probes, anomalies = await asyncio.to_thread(_collect_and_analyze)
         # handle anomalies
         handled = []
         for a in anomalies:

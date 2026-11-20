@@ -76,6 +76,10 @@ def analyze(probes, twin):
         # storage info note (no hard threshold specified, but report if ssh metrics unavailable?)
         if n2_online and n2.get('ssh_ok') is False and n2.get('ssh_error'):
             anomalies.append({'component':'homelab-node2','severity':'warning','summary':'No se pudieron obtener métricas SSH de homelab-node2','tier':0,'action':None,'params':{},'details':{'ssh_error': n2.get('ssh_error')}})
+    # NFS offload to Node 2
+    nfs = probes.get('nfs_node2_storage') or {}
+    if nfs and nfs.get('status') in ('down', 'error'):
+        anomalies.append({'component':'nfs-node2-storage','severity':'critical','summary':'Enlace NFS /mnt/node2-storage (Nodo 1 → Nodo 2) no está montado o accesible','tier':2,'action':None,'params':{},'details':nfs})
     return anomalies
 
 # --- offline rule engine / LLM escalation ---

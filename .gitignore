@@ -1,5 +1,6 @@
 # Media, downloads and media libraries
 media/
+/media
 downloads/
 peliculas/
 series/

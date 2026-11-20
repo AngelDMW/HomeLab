@@ -46,3 +46,17 @@ h1{margin:0;font-size:1.35rem;color:#fff} .subtitle{color:var(--muted);font-size
 .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .audit-pre{white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:.85rem;background:#101014;padding:10px;border-radius:8px;border:1px solid var(--border);max-height:70vh;overflow:auto}
 @media(max-width:1000px){.grid{grid-template-columns:1fr}}
+
+
+/* Audit report & markdown console */
+.audit-body{max-height:70vh;overflow:auto}
+.audit-body table th,.audit-body table td{border-bottom:1px solid var(--border)}
+.audit-body .feed-item{margin-bottom:8px}
+.msg.bot.md{white-space:normal}
+.msg.bot.md h2,.msg.bot.md h3,.msg.bot.md h4{margin:6px 0 4px;color:#fff}
+.msg.bot.md ul{margin:4px 0 4px 18px;padding:0}
+.msg.bot.md li{margin:2px 0}
+.msg.bot.md code{background:#0e0e11;border:1px solid var(--border);border-radius:4px;padding:1px 4px}
+.msg.bot.md pre{background:#0e0e11;border:1px solid var(--border);border-radius:8px;padding:8px;overflow:auto}
+.msg.bot.md pre code{border:none;padding:0;background:transparent}
+details summary{outline:none}

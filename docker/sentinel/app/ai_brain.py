@@ -55,6 +55,27 @@ def analyze(probes, twin):
             anomalies.append({'component':comp,'severity':'critical','summary':f'Contenedor {comp} en mal estado: {text}','tier':1,'action':'restart_container','params':{'container':comp},'details':iss})
         elif itype == 'logs':
             anomalies.append({'component':comp,'severity':'warning','summary':f'Patrones críticos en logs de {comp}: {text}','tier':2,'action':'restart_container','params':{'container':comp},'details':iss})
+    # Node 2 (activo 24/7)
+    n2 = probes.get('node2_metrics') or {}
+    n2_online = n2.get('online')
+    if n2_online is False:
+        anomalies.append({'component':'homelab-node2','severity':'critical','summary':'homelab-node2 (192.168.1.4) no responde (nodo crítico 24/7 caído)','tier':2,'action':'wake_node2','params':{},'details':{'probe': n2}})
+    else:
+        # Portainer Agent
+        n2p = probes.get('node2_portainer') or {}
+        if n2p.get('status') in ('down','error'):
+            anomalies.append({'component':'node2-portainer','severity':'critical','summary':'Portainer Agent en homelab-node2 (:9001) no disponible','tier':2,'action':None,'params':{},'details':n2p})
+        # Immich ML
+        n2ml = probes.get('node2_immich_ml') or {}
+        if n2ml.get('status') in ('down','error') and n2_online:
+            anomalies.append({'component':'node2-immich-ml','severity':'critical','summary':'Immich Machine Learning en homelab-node2 (:3003 /ping) no responde','tier':1,'action':'restart_node2_ml','params':{},'details':n2ml})
+        # RAM alerta temprana >85%
+        ram = n2.get('ram') or {}
+        if ram.get('alert_85'):
+            anomalies.append({'component':'homelab-node2','severity':'warning','summary':f"RAM Nodo 2 al {ram.get('used_pct')}% (alerta temprana >85% de 4 GB)",'tier':0,'action':None,'params':{},'details':{'ram': ram}})
+        # storage info note (no hard threshold specified, but report if ssh metrics unavailable?)
+        if n2_online and n2.get('ssh_ok') is False and n2.get('ssh_error'):
+            anomalies.append({'component':'homelab-node2','severity':'warning','summary':'No se pudieron obtener métricas SSH de homelab-node2','tier':0,'action':None,'params':{},'details':{'ssh_error': n2.get('ssh_error')}})
     return anomalies
 
 # --- offline rule engine / LLM escalation ---
@@ -62,7 +83,7 @@ def analyze(probes, twin):
 def _compose_context(anomaly, probes, twin):
     comp = anomaly.get('component')
     # map component to container name for logs
-    cmap = {'Threadfin':'threadfin','Pi-hole':'pihole','Nextcloud':'nextcloud','Immich':'immich-server','Jellyfin':'jellyfin','host-disk':None}
+    cmap = {'Threadfin':'threadfin','Pi-hole':'pihole','Nextcloud':'nextcloud','Immich':'immich-server','Jellyfin':'jellyfin','host-disk':None,'homelab-node2':None,'node2-portainer':None,'node2-immich-ml':None}
     cname = cmap.get(comp, comp)
     logs = get_container_logs(cname, 60) if cname else ''
     # compact twin
@@ -104,7 +125,7 @@ async def llm_diagnosis(anomaly, probes, twin):
     try:
         async with httpx.AsyncClient(timeout=30.0) as c:
             if provider == 'gemini':
-                models = [settings.llm_model] if settings.llm_model else ['gemini-flash-latest', 'gemini-2.5-flash']
+                models = [settings.llm_model] if settings.llm_model else ['gemini-flash-latest', 'gemini-flash-lite-latest']
                 body = {"contents":[{"parts":[{"text": prompt}]}]}
                 headers = {'X-goog-api-key': key}
                 for model in models:
@@ -166,7 +187,7 @@ async def answer_question(question, twin, probes):
         try:
             async with httpx.AsyncClient(timeout=30.0) as c:
                 if provider == 'gemini':
-                    models = [settings.llm_model] if settings.llm_model else ['gemini-flash-latest', 'gemini-2.5-flash']
+                    models = [settings.llm_model] if settings.llm_model else ['gemini-flash-latest', 'gemini-flash-lite-latest']
                     body = {"contents":[{"parts":[{"text": prompt}]}]}
                     headers = {'X-goog-api-key': key}
                     for model in models:

@@ -128,6 +128,129 @@ def quicksync_info():
     exists = os.path.exists(dev)
     return {'device': dev, 'present': exists}
 
+
+
+def _read_node2_mac():
+    # try ARP/neigh
+    try:
+        r = subprocess.run(['ip', 'neigh', 'show', settings.node2_host], capture_output=True, text=True, timeout=3)
+        m = re.search(r'lladdr\s+([0-9a-f:]{17})', r.stdout, re.I)
+        if m:
+            return m.group(1).lower()
+    except Exception:
+        pass
+    # try hostfs bot config
+    for path in [
+        os.path.join(settings.hostfs, 'home/mrdavid/HomeLab/docker/telegram-bot/.env'),
+        '/homelab/docker/telegram-bot/.env',
+    ]:
+        try:
+            if os.path.exists(path):
+                with open(path) as f:
+                    for line in f:
+                        if line.startswith('NODE2_MAC='):
+                            mac = line.strip().split('=', 1)[1].strip().strip('"').strip("'")
+                            if mac:
+                                return mac.lower()
+        except Exception:
+            pass
+    return (settings.node2_mac or '').lower() or None
+
+def get_node2_mac():
+    mac = _read_node2_mac()
+    if mac:
+        kv_set('node2_mac', mac)
+        return mac
+    return kv_get('node2_mac') or settings.node2_mac
+
+def ssh_node2(cmd, timeout=8):
+    """Run command on node2 via host ssh (nsenter). Returns (ok, stdout, stderr)."""
+    base = ['ssh', '-i', settings.node2_ssh_key,
+            '-o', 'BatchMode=yes', '-o', f'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=no',
+            '-o', 'UserKnownHostsFile=/dev/null', '-p', '22',
+            f'{settings.node2_ssh_user}@{settings.node2_host}', cmd]
+    cmds = []
+    if shutil.which('nsenter'):
+        cmds.append(['nsenter', '-t', '1', '-m', '-u', '-n', '-i', '--'] + base)
+    cmds.append(base)
+    last = None
+    for c in cmds:
+        try:
+            r = subprocess.run(c, capture_output=True, text=True, timeout=timeout)
+            if r.returncode == 0:
+                return True, r.stdout.strip(), r.stderr.strip()
+            last = (r.returncode, r.stdout.strip(), r.stderr.strip())
+        except Exception as e:
+            last = (-1, '', str(e))
+    if last:
+        return False, last[1], last[2]
+    return False, '', 'ssh failed'
+
+def node2_metrics(online=True):
+    info = {'online': online}
+    if not online:
+        return info
+    ok, out, err = ssh_node2("free -b | awk '/^Mem:/ {print $2, $3, $7}'; echo '---'; df -B1 --output=size,used,avail,pcent,target /mnt/storage 2>/dev/null | tail -1", timeout=10)
+    if not ok:
+        info['ssh_ok'] = False
+        info['ssh_error'] = err or out
+        return info
+    info['ssh_ok'] = True
+    try:
+        parts = out.split('---')
+        mem = parts[0].strip().split()
+        if len(mem) >= 3:
+            total = int(mem[0]); used = int(mem[1]); avail = int(mem[2])
+            info['ram'] = {
+                'total_mb': round(total/1024/1024, 1),
+                'used_mb': round(used/1024/1024, 1),
+                'available_mb': round(avail/1024/1024, 1),
+                'used_pct': round((used/total)*100, 1) if total else None,
+                'alert_85': bool(total and (used/total)*100 >= 85),
+            }
+        if len(parts) > 1:
+            st = parts[1].strip().split()
+            if len(st) >= 5:
+                total = int(st[0]); used = int(st[1]); avail = int(st[2])
+                pct = round((used/total)*100, 1) if total else None
+                info['storage'] = {
+                    'path': '/mnt/storage',
+                    'mount': st[4],
+                    'total_gb': round(total/1024/1024/1024, 2),
+                    'used_gb': round(used/1024/1024/1024, 2),
+                    'free_gb': round(avail/1024/1024/1024, 2),
+                    'used_pct': pct,
+                }
+    except Exception as e:
+        info['parse_error'] = str(e)
+    return info
+
+def send_wol(mac=None, broadcast='192.168.1.255'):
+    mac = (mac or get_node2_mac() or '').strip()
+    if not mac:
+        return False, 'MAC not found'
+    try:
+        mac_bytes = bytes.fromhex(mac.replace(':', '').replace('-', ''))
+        if len(mac_bytes) != 6:
+            return False, 'invalid MAC'
+        packet = b'\xff' * 6 + mac_bytes * 16
+        targets = [broadcast, '255.255.255.255']
+        sent = 0
+        for target in targets:
+            for port in (9, 7):
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                    s.sendto(packet, (target, port))
+                    s.close()
+                    sent += 1
+                except Exception:
+                    pass
+        return sent > 0, f'WoL enviado a {mac} ({sent} paquetes)'
+    except Exception as e:
+        return False, str(e)
+
+
 def ping_host(ip, timeout=1.0):
     try:
         r = subprocess.run(['ping','-c','1','-W',str(int(timeout)), ip], capture_output=True, text=True, timeout=timeout+1)
@@ -249,10 +372,25 @@ def collect_twin():
         'tailscale': tailscale_info(),
         'quicksync': quicksync_info(),
     }
+    node2_ping = ping_host(settings.node2_host)
+    node2_mac = get_node2_mac()
+    node2 = {
+        'name': 'homelab-node2 (Nodo 2)',
+        'ip': settings.node2_host,
+        'mac': node2_mac,
+        'specs': 'AMD FX-8300 · 4 GB RAM · GPU RX 550 · SSD 240 GB + HDD 1 TB /mnt/storage · BIOS auto-encendido',
+        'role': 'critical_24x7',
+        **node2_ping,
+    }
+    try:
+        node2['metrics'] = node2_metrics(online=bool(node2_ping.get('up')))
+    except Exception as e:
+        node2['metrics_error'] = str(e)
     nodes = {
         'gateway_zte': {'name': 'Gateway ZTE F6201B', 'ip': '192.168.1.1', **ping_host('192.168.1.1')},
         'ap_nexxt': {'name': 'AP Nexxt Amp300', 'ip': '192.168.1.254', **ping_host('192.168.1.254')},
         'host': {'name': host['name'], **host, **ping_host('192.168.1.3')},
+        'node2': node2,
         'tcl_tv': {'name': 'TCL Android TV 12', 'ip': '192.168.1.8', **ping_host('192.168.1.8')},
     }
     docker_info = collect_containers()
@@ -271,6 +409,7 @@ def collect_twin():
             'cpu_temp_c': host.get('cpu_temp_c'),
             'containers_running': docker_info.get('running'),
             'containers_total': docker_info.get('count'),
+            'node2_up': bool(node2_ping.get('up')),
         })
     except Exception:
         pass

@@ -4,7 +4,7 @@ import httpx
 import dns.resolver
 from .config import settings
 from .db import add_sample, kv_get, kv_set
-from .twin_engine import docker_client
+from .twin_engine import docker_client, node2_metrics, get_node2_mac
 
 TIMEOUT = 8.0
 
@@ -172,9 +172,19 @@ def check_containers_and_logs():
                 logs = c.logs(tail=60, since=int(time.time())-600).decode('utf-8','ignore')
             except Exception:
                 logs = ''
+            log_text = logs
+            # optiplex-chatops: exclude transient Telegram polling false positives
+            if name == 'optiplex-chatops':
+                filtered_lines = []
+                for line in logs.splitlines():
+                    ll = line.lower()
+                    if '[warn]' in ll and 'efatal' in ll and ('api.telegram.org' in ll or 'etimedout' in ll or 'econnreset' in ll or 'enotfound' in ll or 'econnrefused' in ll):
+                        continue
+                    filtered_lines.append(line)
+                log_text = '\n'.join(filtered_lines)
             patterns = []
             for pat in ['OOM', 'Out of memory', 'FATAL', 'I/O error', 'Input/output error', 'connection refused', 'Connection refused']:
-                if pat.lower() in logs.lower():
+                if pat.lower() in log_text.lower():
                     patterns.append(pat)
             if patterns:
                 # de-dup
@@ -196,6 +206,79 @@ def disk_margin_check():
     except Exception as e:
         return {'ok': False, 'error': str(e)}
 
+
+
+def probe_node2_portainer():
+    url = settings.node2_portainer_url.rstrip('/') if hasattr(settings, 'node2_portainer_url') else 'https://192.168.1.4:9001'
+    # availability TCP/TLS: any HTTP response means reachable
+    r = _http_get(url, max_text=500)
+    ok = r.get('status_code') is not None  # got response (even 401/404) => TCP/TLS up
+    status = 'ok' if ok else 'down'
+    return {
+        'name': 'Nodo 2 Portainer Agent',
+        'host': settings.node2_host,
+        'port': 9001,
+        'endpoint': '/ (TCP/TLS)',
+        'ok': ok,
+        'status_code': r.get('status_code'),
+        'latency_ms': r.get('latency_ms'),
+        'status': status,
+        'error': r.get('error') if not ok else None,
+    }
+
+def probe_node2_immich_ml():
+    base = settings.node2_ml_url.rstrip('/') if hasattr(settings, 'node2_ml_url') else 'http://192.168.1.4:3003'
+    r = _http_get(base + '/ping', max_text=500)
+    text = (r.get('text') or '').strip().lower()
+    ok = r.get('ok') and ('pong' in text or r.get('status_code') == 200)
+    return {
+        'name': 'Nodo 2 Immich ML',
+        'host': settings.node2_host,
+        'port': 3003,
+        'endpoint': '/ping',
+        'url': base + '/ping',
+        'ok': ok,
+        'response': (r.get('text') or '')[:200],
+        'latency_ms': r.get('latency_ms'),
+        'status': 'ok' if ok else 'down',
+        'error': r.get('error'),
+    }
+
+def probe_node2_metrics():
+    host_up = _http_get(f"http://{settings.node2_host}:3003/ping", max_text=10).get('status_code') is not None
+    # better: rely on ping_host via twin cached? do quick check
+    try:
+        import subprocess as _sp
+        pr = _sp.run(['ping','-c','1','-W','1', settings.node2_host], capture_output=True, timeout=3)
+        online = pr.returncode == 0
+    except Exception:
+        online = False
+    m = node2_metrics(online=online)
+    mac = get_node2_mac()
+    ram = m.get('ram') or {}
+    storage = m.get('storage') or {}
+    ram_alert = bool(ram.get('alert_85'))
+    status = 'ok'
+    if not online:
+        status = 'down'
+    elif ram_alert or not m.get('ssh_ok', False):
+        status = 'degraded' if m.get('ssh_ok') else 'degraded'
+    if ram_alert:
+        status = 'warning'
+    return {
+        'name': 'Nodo 2 (métricas)',
+        'host': settings.node2_host,
+        'mac': mac,
+        'online': online,
+        'ssh_ok': m.get('ssh_ok'),
+        'ssh_error': m.get('ssh_error'),
+        'ram': ram,
+        'storage': storage,
+        'ram_alert_85': ram_alert,
+        'status': status,
+    }
+
+
 def run_all_probes():
     results = {}
     for key, fn in [
@@ -204,6 +287,9 @@ def run_all_probes():
         ('nextcloud', probe_nextcloud),
         ('immich', probe_immich),
         ('jellyfin', probe_jellyfin),
+        ('node2_portainer', probe_node2_portainer),
+        ('node2_immich_ml', probe_node2_immich_ml),
+        ('node2_metrics', probe_node2_metrics),
     ]:
         try:
             results[key] = fn()

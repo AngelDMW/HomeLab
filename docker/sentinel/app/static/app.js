@@ -23,27 +23,30 @@ function nodeStatusClass(node){
 function renderMap(state){
   const twin = state.twin || {}; const nodes = twin.nodes || {};
   const host = nodes.host || {}; const zte = nodes.gateway_zte || {}; const ap = nodes.ap_nexxt || {}; const tv = nodes.tcl_tv || {};
+  const node2 = nodes.node2 || {};
   const docker = twin.docker || {}; const running = docker.running ?? '?'; const total = docker.count ?? '?';
   // aggregate container health
   let contClass = 'ok';
   for(const c of (docker.containers||[])){
     if(c.health==='unhealthy' || c.restarting || c.status==='restarting' || c.status==='exited') { contClass = 'warn'; }
   }
-  const contNode = {name:`Contenedores (${running}/${total})`, up: contClass!=='bad'};
+  const node2Sub = `${node2.ip||'192.168.1.4'} · 24/7 crítico${node2.up===false?' · CAÍDO':''}`;
   const map = $('#map');
   map.innerHTML = `
     <div class="map-row">
       ${nodeHtml('zte','Gateway ZTE', zte.ip||'192.168.1.1', zte)}
       <div class="arrow">→</div>
       ${nodeHtml('ap','AP Nexxt', ap.ip||'192.168.1.254', ap)}
-      <div class="arrow">→</div>
-      ${nodeHtml('host','OptiPlex Host', host.ip||'192.168.1.3', host)}
+    </div>
+    <div class="arrow">↓ LAN</div>
+    <div class="map-row">
+      ${nodeHtml('host','OptiPlex Host (Nodo 1)', host.ip||'192.168.1.3', host)}
+      ${nodeHtml('node2','homelab-node2 (Nodo 2)', node2Sub, node2)}
+      ${nodeHtml('tv','TCL Android TV 12', tv.ip||'192.168.1.8', tv)}
     </div>
     <div class="arrow">↓</div>
     <div class="map-row">
       ${nodeHtml('containers','Contenedores Docker', `${running}/${total} activos`, {up: contClass!=='bad', _class: contClass, containers: docker.containers||[]})}
-      <div class="arrow">→</div>
-      ${nodeHtml('tv','TCL Android TV 12', tv.ip||'192.168.1.8', tv)}
     </div>`;
   map.querySelectorAll('.node').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -60,13 +63,31 @@ function nodeHtml(key, title, sub, node){
 
 function showNodeDetail(key, state){
   const twin = state.twin || {}; const nodes = twin.nodes || {}; const probes = state.probes || {};
-  let obj = null; let label = key;
+  let obj = null; let label = key; let extraHtml = '';
   if(key==='zte'){ obj = nodes.gateway_zte; label='Gateway ZTE (192.168.1.1)'; }
   else if(key==='ap'){ obj = nodes.ap_nexxt; label='AP Nexxt (192.168.1.254)'; }
   else if(key==='host'){ obj = nodes.host; label='Host OptiPlex (192.168.1.3)'; }
+  else if(key==='node2'){
+    obj = nodes.node2; label='homelab-node2 (Nodo 2, 192.168.1.4) — crítico 24/7';
+    const mac = (obj && obj.mac) ? esc(obj.mac) : '—';
+    extraHtml = `<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="muted small">MAC: ${mac}</span><button id="wolBtn" class="btn small">Wake-on-LAN (recuperación manual)</button><span id="wolMsg" class="muted small"></span></div>`;
+  }
   else if(key==='tv'){ obj = nodes.tcl_tv; label='TCL Android TV 12 (192.168.1.8)'; }
   else if(key==='containers'){ obj = {summary: {count: (twin.docker||{}).count, running: (twin.docker||{}).running}, containers: (twin.docker||{}).containers||[]}; label='Contenedores Docker'; }
-  $('#nodeDetail').textContent = label + "\n" + JSON.stringify(obj, null, 2);
+  const detail = $('#nodeDetail');
+  detail.innerHTML = `<div><strong>${esc(label)}</strong></div>${extraHtml}<pre style="margin:8px 0 0;white-space:pre-wrap">${esc(JSON.stringify(obj, null, 2))}</pre>`;
+  const wolBtn = document.getElementById('wolBtn');
+  if(wolBtn){
+    wolBtn.addEventListener('click', async ()=>{
+      wolBtn.disabled = true; const msg = document.getElementById('wolMsg'); msg.textContent = 'Enviando WoL...';
+      try{
+        const r = await fetch('/api/node2/wol', {method:'POST'});
+        const d = await r.json();
+        msg.textContent = d.ok ? ('OK: '+d.detail) : ('Error: '+d.detail);
+      }catch(e){ msg.textContent = 'Error: '+e.message; }
+      finally{ wolBtn.disabled = false; }
+    });
+  }
 }
 
 function renderHost(state){
@@ -106,6 +127,20 @@ function renderProbes(state){
   }
   const disk = probes.disk || {};
   if(disk.used_pct!=null) items.push(`<div class="probe"><div><strong>Disco /dev/sda1</strong><span class="muted small"> · ${disk.used_pct}% usado · ${disk.free_gb} GB libres</span></div>${badge(disk.critical_95?'critical':disk.warn_92?'warning':'ok')}</div>`);
+  // Node 2
+  const n2p = probes.node2_portainer || {};
+  if(n2p.name) items.push(`<div class="probe"><div><strong>${esc(n2p.name)}</strong><span class="muted small"> · ${esc(n2p.host||'')} :${n2p.port||''} ${n2p.status_code? '(HTTP '+n2p.status_code+')':''}</span></div>${badge(n2p.status)}</div>`);
+  const n2ml = probes.node2_immich_ml || {};
+  if(n2ml.name) items.push(`<div class="probe"><div><strong>${esc(n2ml.name)}</strong><span class="muted small"> · ${esc(n2ml.endpoint||'/ping')} ${n2ml.response?('· '+String(n2ml.response).slice(0,20)) : ''}</span></div>${badge(n2ml.status)}</div>`);
+  const n2m = probes.node2_metrics || {};
+  if(n2m.name){
+    const ram = n2m.ram||{}; const st = n2m.storage||{};
+    let extra = ` · ${n2m.online?'online':'offline'}`;
+    if(ram.used_pct!=null) extra += ` · RAM ${ram.used_pct}% (${ram.used_mb}/${ram.total_mb} MB)${ram.alert_85?' ⚠>85%':''}`;
+    if(st.free_gb!=null) extra += ` · /mnt/storage libre ${st.free_gb} GB (${st.used_pct}% usado)`;
+    if(n2m.ssh_ok===false && n2m.online) extra += ' · SSH métricas no disponible';
+    items.push(`<div class="probe"><div><strong>${esc(n2m.name)}</strong><span class="muted small">${esc(extra)}</span></div>${badge(n2m.status)}</div>`);
+  }
   const cl = probes.containers_logs || {}; const issues = (cl.issues||[]).length;
   items.push(`<div class="probe"><div><strong>Contenedores/Logs</strong><span class="muted small"> · ${issues} incidencia(s) reciente(s)</span></div>${badge(issues? 'warning':'ok')}</div>`);
   $('#probes').innerHTML = items.join('') || '<div class="muted">Sin datos aún.</div>';

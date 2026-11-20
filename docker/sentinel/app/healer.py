@@ -2,7 +2,7 @@ import hashlib, hmac, json, os, subprocess, time, uuid, shutil
 import httpx
 from .config import settings
 from .db import add_repair, count_actions, save_pending_action, get_pending_action, set_pending_status, kv_set, find_active_tier2
-from .twin_engine import docker_client
+from .twin_engine import docker_client, send_wol, ssh_node2, get_node2_mac
 
 def _sig(action_id, decision):
     msg = f"{action_id}:{decision}".encode()
@@ -103,10 +103,25 @@ def clean_safe_caches():
         detail += ' | errors: ' + '; '.join(errors[:5])
     return ok, detail
 
+def wake_node2_action(params=None):
+    mac = get_node2_mac()
+    ok, detail = send_wol(mac)
+    return ok, detail
+
+def restart_node2_ml(params=None):
+    cmd = "cd /home/mrdavid/HomeLab/docker/immich-ml && docker compose restart immich-machine-learning 2>&1 || docker restart immich-machine-learning 2>&1 || (docker compose up -d immich-machine-learning 2>&1)"
+    ok, out, err = ssh_node2(cmd, timeout=60)
+    detail = (out or err or '').strip()
+    if ok:
+        return True, detail[-2000:] if detail else 'immich-machine-learning reiniciado en homelab-node2'
+    return False, detail[-2000:] if detail else 'falló reinicio remoto de immich-machine-learning'
+
 ACTION_HANDLERS = {
     'restart_container': lambda p: restart_container(p.get('container') or p.get('component')),
     'threadfin_publish': lambda p: run_threadfin_publish(),
     'clean_caches': lambda p: clean_safe_caches(),
+    'wake_node2': lambda p: wake_node2_action(p),
+    'restart_node2_ml': lambda p: restart_node2_ml(p),
 }
 
 def execute_action(action, params):

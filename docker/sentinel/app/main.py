@@ -11,6 +11,7 @@ from .twin_engine import collect_twin
 from .probes import run_all_probes
 from .ai_brain import analyze, diagnose, answer_question
 from .healer import try_tier1, request_tier2, verify_sig, approve_pending, ignore_pending
+from .twin_engine import send_wol, get_node2_mac
 
 STATE = {'twin': None, 'probes': None, 'anomalies': [], 'last_cycle': None, 'last_audit': None}
 _scheduler = None
@@ -160,6 +161,17 @@ async def api_ignore(id: str = Query(...), sig: str = Query(...)):
         raise HTTPException(status_code=403, detail='invalid signature')
     ok, detail = ignore_pending(id)
     return HTMLResponse(f"<html><body style='font-family:sans-serif;background:#0b0b0d;color:#eee;padding:2rem'><h2>🚫 Acción ignorada</h2><p>{detail}</p><p>ID: {id}</p></body></html>")
+
+
+
+@app.post('/api/node2/wol')
+async def api_node2_wol():
+    mac = get_node2_mac()
+    ok, detail = send_wol(mac)
+    if ok:
+        add_repair('homelab-node2', 'wake_node2', 2, 'manual_wol', {'detail': detail, 'mac': mac}, 'Wake-on-LAN manual solicitado desde Mission Control')
+    return JSONResponse({'ok': ok, 'detail': detail, 'mac': mac})
+
 
 @app.get('/health')
 async def health():

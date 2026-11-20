@@ -62,3 +62,13 @@ docker/immich/backup_to_node2.log
 docker/threadfin/conf/
 docker/threadfin/temp/
 docker/threadfin/.env
+
+# Artefactos de ejecucion / estado no versionable detectados en auditoria
+docker/media-stack/bazarr/
+docker/threadfin/logs/
+docker/threadfin/__pycache__/
+docker/threadfin/.sync.lock
+docker/threadfin/root_crontab.new
+docker/threadfin/apply_settings.py
+__pycache__/
+*.pyc

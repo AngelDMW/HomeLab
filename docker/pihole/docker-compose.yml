@@ -36,6 +36,8 @@ services:
       FTLCONF_dns_listeningMode: 'ALL'
       # Único upstream: Unbound recursivo con DNSSEC (equivalente v6 de PIHOLE_DNS_)
       FTLCONF_dns_upstreams: 'unbound#5335'
+      # Retencion de consultas acotada a 14 dias (evita crecimiento de pihole-FTL.db)
+      FTLCONF_database_maxDBdays: '14'
     volumes:
       - pihole_data:/etc/pihole
       - dnsmasq_data:/etc/dnsmasq.d

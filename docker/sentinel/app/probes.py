@@ -327,6 +327,23 @@ def check_containers_and_logs():
                         continue
                     filtered_lines.append(line)
                 log_text = '\n'.join(filtered_lines)
+            # immich-postgres: el FATAL de arranque ("database system is starting up" /
+            # "in recovery mode") es transitorio; la salud real ya la cubren el healthcheck
+            # del contenedor y la sonda L7 /api/server/ping.
+            if name == 'immich-postgres':
+                lines = logs.splitlines()
+                log_text = '\n'.join(l for l in lines
+                    if not ('fatal' in l.lower() and (
+                        'database system is starting up' in l.lower() or
+                        'in recovery mode' in l.lower())))
+            # seerr-theme: nginx puede registrar 502 mientras jellyseerr arranca.
+            # Solo se considera ruido si existe una respuesta 200 posterior.
+            if name == 'seerr-theme':
+                lines = logs.splitlines()
+                last_ok = max((i for i, l in enumerate(lines) if ' 200 ' in l), default=-1)
+                log_text = '\n'.join(l for i, l in enumerate(lines)
+                    if not (last_ok >= 0 and i < last_ok and
+                            'connect() failed (111: connection refused)' in l.lower()))
             patterns = []
             for pat in ['OOM', 'Out of memory', 'FATAL', 'I/O error', 'Input/output error', 'connection refused', 'Connection refused']:
                 if pat.lower() in log_text.lower():

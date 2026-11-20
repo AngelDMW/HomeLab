@@ -240,3 +240,32 @@ ssh homelab 'docker exec crowdsec cscli decisions list && docker exec crowdsec c
 ssh homelab 'sudo tailscale serve status'
 ssh homelab 'ssh -i ~/.ssh/node2_bot mrdavid@192.168.1.4 "findmnt /mnt/storage && df -h /mnt/storage"'
 ```
+
+
+## Full-Cluster Tuning & End-to-End Audit (2026-11-20)
+
+Pre-change snapshot: `/home/mrdavid/backups-compose/20261120_full_cluster_tune_pre/` (11 compose files, sysctl, DNS/security configs, Git state). Repo synced with `git pull --rebase` first.
+
+| Area | Parameter | Node 1 | Node 2 | Verification |
+| --- | --- | --- | --- | --- |
+| Memory | `vm.swappiness` | 60 → **10** | 60 → **15** | `sysctl --system` applied |
+| Memory | `vm.vfs_cache_pressure` | 100 → **50** | 100 → **50** | applied |
+| FS watch | `fs.inotify.max_user_watches` | 60745 → **524288** | — | applied (Nextcloud/Immich/Jellyfin) |
+| FS watch | `fs.inotify.max_user_instances` | 128 → **1024** | — | applied |
+| Network | `net.core.rmem_max` / `wmem_max` | 212992 → **16777216** | 212992 → **16777216** | applied |
+| Network | `tcp_rmem` / `tcp_wmem` max | 6 MB / 4 MB → **16 MB** | → **16 MB** | applied |
+| Network | `net.core.somaxconn` | 4096 → **4096** | 128 → **4096** | applied |
+| SSD | `fstrim.timer` | enabled + active | enabled + active | `systemctl is-*` |
+| NFS | `RPCNFSDCOUNT` | — | **8** (already correct) | `/etc/default/nfs-kernel-server` |
+| Docker logs | `json-file` `max-size=10m`, `max-file=3` | 8 stacks (21 services) | immich-ml | `docker inspect .HostConfig.LogConfig` |
+| DNS | Unbound `prefetch`, `prefetch-key`, `serve-expired` | all **yes** | — | `unbound-checkconf` OK |
+| DNS | Pi-hole `FTLCONF_database_maxDBdays` | 91 → **14** | — | `pihole-FTL --config` = 14 |
+| Nextcloud | Missing DB indices / cron mode | none / `cron` | — | `occ db:add-missing-indices` (no-op, exit 0) |
+| Immich | `immich-server` healthcheck `start_period` | **300s** | — | avoids false `unhealthy` during `vchordrq_prewarm` |
+| Sentinel | Transient log false-positive filters | Postgres startup FATAL; seerr-theme 502 with later 200 | — | `probes.py`, image rebuilt |
+
+Config files added: `/etc/sysctl.d/99-homelab-tuning.conf` (N1), `/etc/sysctl.d/99-homelab-node2-tuning.conf` (N2).
+
+**Findings corrected:** Docker logs 57 MB → **3 MB** (largest were `nextcloud` 34 MB and `immich-server` 14 MB); build cache reclaimed **420.7 MB**; transient `immich-postgres` recovery-mode FATAL and `seerr-theme` 502s traced to restarts and resolved; Bazarr `subf2m`/`addic7ed` throttling (missing User-Agent/credentials) and empty `/media/peliculas` logged as informational, not changed (no data touched). `portainer` remains an unmanaged, externally-created container (no Compose labels): its 1.7 MB log has no rotation until a future managed recreate; the empty `portainer_default` network created by the failed `up` was removed.
+
+**Verified final state:** Sentinel `POST /api/audit` → `ok:true`, **13/13 probes OK, 0 anomalies** (`threadfin`, `pihole`, `unbound_dnssec`, `crowdsec_ips`, `nextcloud`, `immich`, `jellyfin`, `node2_portainer`, `node2_immich_ml`, `node2_metrics`, `containers_logs`, `disk`, `nfs_node2_storage`). DNSSEC `sigfail`→`SERVFAIL` / `sigok`→`NOERROR`; CrowdSec bouncer active with 0 decisions and the private-subnet whitelist intact; `/dev/sda1` 86% (32 GB free, below the 92% alert); Nodo 2 RAM 24.4%; no OOMKilled and no restart loops; all official healthchecks healthy.

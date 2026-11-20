@@ -14,3 +14,8 @@ services:
       - ./temp:/tmp/threadfin
     mem_limit: 512m
     cpus: 1.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

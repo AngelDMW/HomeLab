@@ -7,6 +7,11 @@ services:
     volumes:
       - nextcloud_nextcloud_data:/var/www/html
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   nextcloud_nextcloud_data:

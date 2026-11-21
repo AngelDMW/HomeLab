@@ -255,6 +255,9 @@ ssh homelab 'sudo tailscale serve status'
 | Live status | All 19 health targets checked in parallel every 60 s (HTTP < 500 or TCP connect), with manual refresh |
 | Search and actions | Global search on `Cmd/Ctrl + K`, 11 runbooks (HTTP triggers and copy-ready SSH/log/diagnostic commands) and a persistent technical log |
 | Native app | PWA manifest and service worker; installable from Safari on iPhone and Chrome on macOS, with Face ID/Touch ID autofill through iCloud Keychain |
+| 🏢 Oficina IA | Real-time animated `HomeLab Corp Live` view: the Director and 8 AI employees as SVG characters in their stations, fed by `corp-tools-api` + Sentinel AI, with 4-second polling, live bubbles, a tap-to-open dossier and two whitelisted n8n commands |
+
+The **Oficina IA** tab adds `GET /api/corp-office-state` (nine characters with `state`, `bubble_text`, `last_report`, `qa_score`, `last_seen` and `active_links`) and `POST /api/corp-office-command` (`director_round` or `assign_review` for one employee). Rendering stays entirely in the browser (SVG + CSS, no new Node dependencies), keeping `homelab-nexus` near 45 MB of its 192 MB limit. `CORP_INTERNAL_TOKEN` is read from the Corp `.env` into the Nexus `.env` and is only ever sent as `X-Corp-Token` to the API; it is never returned to the client or committed.
 
 The vault key is derived from `NEXUS_MASTER_KEY` and is independent from the login password. Losing that key makes stored passwords unrecoverable, so it is backed up in the password manager, never in Git. The full deployment, backup and restore procedure is documented in `docker/nexus/README.md`.
 

@@ -14,6 +14,7 @@ from .crypto import decrypt_text, encrypt_text
 from .db import _utcnow, db, init_db, row_to_dict
 from .seed import seed_if_empty
 from .status import check_many
+from .corp_office import dispatch_command, get_office_state
 
 APP_DIR = os.path.dirname(__file__)
 STATIC_DIR = os.path.join(APP_DIR, "static")
@@ -42,6 +43,11 @@ class VaultItemIn(BaseModel):
 class NoteIn(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     content: str = Field(default="", max_length=20000)
+
+
+class OfficeCommandIn(BaseModel):
+    action: str = Field(min_length=1, max_length=40)
+    employee: str | None = Field(default=None, max_length=40)
 
 
 @app.on_event("startup")
@@ -212,6 +218,31 @@ async def status_all():
     items = [dict(r) for r in rows]
     statuses = await check_many(items, timeout=1.5)
     return {"ok": True, "statuses": statuses}
+
+
+@app.get("/api/corp-office-state")
+async def corp_office_state():
+    """Estado vivo de los 9 personajes de Oficina IA (Corp + Sentinel)."""
+    try:
+        return await get_office_state()
+    except Exception as exc:  # noqa: BLE001 - la vista debe degradar con elegancia
+        return {
+            "ok": False,
+            "error": type(exc).__name__,
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "characters": [],
+            "active_links": [],
+            "summary": {},
+        }
+
+
+@app.post("/api/corp-office-command")
+async def corp_office_command(body: OfficeCommandIn):
+    """Ronda general del Director o revisión puntual de un empleado."""
+    try:
+        return await dispatch_command(body.action, body.employee)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/runbooks")

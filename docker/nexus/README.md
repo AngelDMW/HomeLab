@@ -2,7 +2,7 @@
 
 > Centro de mando personal del HomeLab: lanzador unificado de servicios, bóveda cifrada de credenciales y panel de acciones rápidas, todo en una sola aplicación web instalable.
 
-**HomeLab Nexus** sustituye la costumbre de saltar entre marcadores, hojas de cálculo y notas sueltas por un único punto de entrada. Desde el móvil o el escritorio se abre un panel que conoce la topología de la red, cambia entre la Casa (LAN) y el acceso remoto (Tailscale), comprueba el estado real de los servicios y guarda las credenciales cifradas en disco.
+**HomeLab Nexus** sustituye la costumbre de saltar entre marcadores, hojas de cálculo y notas sueltas por un único punto de entrada. Desde el móvil o el escritorio se abre un panel que conoce la topología de la red, cambia entre la Casa (LAN) y el acceso remoto (Tailscale), comprueba el estado real de los servicios y guarda las credenciales cifradas en disco. Incorpora además **🏢 Oficina IA (HomeLab Corp Live)**: una vista animada en tiempo real con el Director y los 8 empleados IA trabajando sobre datos vivos del ledger de HomeLab Corp y de Sentinel AI.
 
 | Ficha rápida | Valor |
 |---|---|
@@ -134,6 +134,19 @@ Cómo funciona:
 - Los runbooks de tipo `copy` muestran el comando con un botón para copiarlo; los de tipo `http` se ejecutan desde el servidor y devuelven código y cuerpo de la respuesta (máximo 2 000 caracteres) en el panel de feedback.
 - **Bitácora técnica.** Notas persistentes en SQLite con título, contenido, fecha de actualización y CRUD completo. Se siembra una nota inicial de bienvenida.
 
+### 3.5 🏢 Oficina IA (HomeLab Corp Live)
+
+Nueva pestaña disponible en la barra lateral de macOS y en la barra inferior de iPhone. Muestra a los **9 personajes** —`00 HomeLab-Director` + `Infra`, `SecOps`, `Media`, `Cloud`, `Updater`, `Backup`, `Architect` y `QA`— en sus estaciones de trabajo dentro del escenario **HomeLab Corp HQ**.
+
+- **Datos reales, no simulados.** El backend consulta en paralelo (timeout 2 s, tolerante a fallos) `corp-tools-api` (`192.168.1.4:8006`: `/api/ledger/summary`, `/api/tools/backup/history`, `/api/tools/updater/history`, `/api/ledger/proposals`, `/api/tools/qa`) y Sentinel AI (`192.168.1.3:9090/api/state`). Cada personaje expone `state`, `bubble_text`, `last_report`, `qa_score`, `last_seen` y `active_links`.
+- **Estados animados:** `idle_guard` (respiración en guardia), `working` (tecleo), `reporting` (informe), `healing` (pulso/naranja) y `alert` (pulso/rojo). Las partículas SVG recorren las líneas de datos del Director hacia la estación correspondiente cuando hay orders o escalados.
+- **Burbujas en vivo** con métricas reales: uso de SSD y Nodo 2, DNSSEC/CrowdSec, versión de Jellyfin, respaldo verificado, propuestas pendientes, QA y sondas OK.
+- **Controles:** indicador **EN VIVO · 4 s**, tareas completadas, último backup 3-2-1, estado de las sondas y botón **⚡ Convocar Ronda General** (POST al webhook `/webhook/director` de n8n, con confirmación previa).
+- **Ficha al tocar:** biografía operativa, último informe completo del ledger, puntuación QA, enlaces activos y botón **Asignar revisión ahora**, que invoca solo el webhook predefinido del empleado (`/webhook/agent-<rol>`) en modo `review_only` (nunca dispara backup ni actualización real).
+- **Ligereza:** toda la renderización es **SVG animado + CSS/JS del navegador**. No hay librerías gráficas ni dependencias Node nuevas; `homelab-nexus` sigue con `mem_limit: 192m` (consumo observado ~45 MB).
+- **Móvil:** en pantallas ≤860 px el escenario SVG se sustituye por tarjetas táctiles con el mismo avatar, estado, burbuja y acceso a la ficha.
+- **Seguridad:** los endpoints están tras la cookie HttpOnly de Nexus. `CORP_INTERNAL_TOKEN` solo se usa como cabecera `X-Corp-Token` hacia `corp-tools-api`; jamás se devuelve al navegador ni se escribe en logs o Git.
+
 ---
 
 ## 4. Los 19 servicios del clúster
@@ -238,6 +251,12 @@ NEXUS_MASTER_KEY=<cadena-aleatoria-larga>
 # Opcionales
 NEXUS_SESSION_DAYS=14
 NEXUS_DB_PATH=/app/data/nexus.sqlite3
+
+# Oficina IA (HomeLab Corp Live) — NUNCA versionar el token
+CORP_API_URL=http://192.168.1.4:8006
+CORP_INTERNAL_TOKEN=<token-interno-de-corp-tools-api>
+# CORP_DIRECTOR_URL=http://192.168.1.4:5678/webhook/director
+# SENTINEL_URL=http://192.168.1.3:9090
 ```
 
 | Variable | Obligatoria | Descripción |
@@ -247,6 +266,12 @@ NEXUS_DB_PATH=/app/data/nexus.sqlite3
 | `NEXUS_MASTER_KEY` | Sí | Semilla del cifrado Fernet. Si falta, el contenedor falla al sembrar la base |
 | `NEXUS_SESSION_DAYS` | No | Duración de la sesión en días (por defecto `14`) |
 | `NEXUS_DB_PATH` | No | Ruta de SQLite (por defecto `/app/data/nexus.sqlite3`) |
+| `CORP_API_URL` | No | Base de `corp-tools-api` (por defecto `http://192.168.1.4:8006`) |
+| `CORP_INTERNAL_TOKEN` | Sí* | Token interno enviado como `X-Corp-Token`. Copiar de `docker/ai-corp/.env`; sin él la oficina queda en modo degradado |
+| `CORP_DIRECTOR_URL` | No | Webhook del Director (por defecto `http://192.168.1.4:5678/webhook/director`) |
+| `SENTINEL_URL` | No | Base de Sentinel AI (por defecto `http://192.168.1.3:9090`) |
+
+\* Obligatorio para los datos vivos de Oficina IA; el resto de Nexus sigue funcionando sin él.
 
 Generar una clave maestra robusta:
 
@@ -471,6 +496,8 @@ Todas las rutas `/api/*` (salvo `/api/login`) requieren la cookie de sesión. La
 | `DELETE` | `/api/items/{id}` | Elimina un servicio |
 | `POST` | `/api/items/{id}/reveal` | Devuelve la contraseña descifrada |
 | `GET` | `/api/status-all` | Comprueba todos los health checks |
+| `GET` | `/api/corp-office-state` | Estado vivo de los 9 personajes (Corp + Sentinel) y enlaces activos |
+| `POST` | `/api/corp-office-command` | `{"action":"director_round"}` o `{"action":"assign_review","employee":"qa"}`; solo webhooks predefinidos |
 | `GET` | `/api/runbooks` | Lista de runbooks |
 | `POST` | `/api/runbooks/{id}/run` | Ejecuta un runbook HTTP o devuelve el comando |
 | `GET` | `/api/notes` | Lista de notas |
@@ -498,6 +525,8 @@ Rutas estáticas: `/`, `/manifest.json`, `/sw.js`, `/icon-192.png`, `/icon-512.p
 | El puerto 8888 está ocupado | Otro servicio en el host | `ss -ltnp \| grep 8888` y liberar o remapear |
 | Las contraseñas salen vacías | `NEXUS_MASTER_KEY` cambió | Restaurar la clave original desde el gestor |
 | La base parece bloqueada | WAL sin checkpoint o copia manual | Reiniciar el contenedor; respaldar con la API de SQLite |
+| Oficina IA sin datos / «Ledger Corp SIN CONEXIÓN» | Falta `CORP_INTERNAL_TOKEN` o el Nodo 2 está apagado | Copiar la variable desde `docker/ai-corp/.env`, reiniciar Nexus y comprobar `curl http://192.168.1.4:8006/health` |
+| Las burbujas muestran «sin dato» | Ledger vacío o Sentinel en caché fría | Ejecutar una ronda del Director y volver a abrir la pestaña |
 
 ---
 
@@ -520,11 +549,14 @@ docker/nexus/
     ├── db.py              # esquema SQLite, WAL y helper de conexión
     ├── seed.py            # 19 servicios, 11 runbooks y nota inicial
     ├── status.py          # sondas HTTP/TCP en paralelo
+    ├── corp_office.py     # puente Corp + Sentinel, estados y comandos permitidos
     └── static/
-        ├── index.html     # shell de la PWA
+        ├── index.html     # shell de la PWA (pestaña Oficina IA)
         ├── styles.css     # tema oscuro glassmorphism
+        ├── office.css     # escenario, actores, burbujas y ficha
         ├── app.js         # lógica de UI, red, bóveda y runbooks
-        ├── sw.js          # service worker (shell cache)
+        ├── office.js      # SVG animado, polling 4 s y fichas táctiles
+        ├── sw.js          # service worker (shell cache v2)
         ├── manifest.json  # metadatos de instalación
         ├── icon-192.png
         └── icon-512.png

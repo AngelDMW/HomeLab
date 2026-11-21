@@ -12,6 +12,7 @@
   <link rel="apple-touch-icon" href="/icon-192.png">
   <link rel="icon" href="/icon-192.png" type="image/png">
   <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/office.css">
 </head>
 <body>
   <div class="bg-orb orb-a"></div>
@@ -57,6 +58,10 @@
         <button class="nav-btn active" data-tab="services">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
           <span>Servicios</span>
+        </button>
+        <button class="nav-btn" data-tab="office">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18M5 21V5l7-2 7 2v16M9 21v-5h6v5M9 8h2M13 8h2M9 12h2M13 12h2"/></svg>
+          <span>🏢 Oficina IA</span>
         </button>
         <button class="nav-btn" data-tab="actions">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2L4.5 13H11l-1 9 9.5-11H13z"/></svg>
@@ -123,6 +128,28 @@
         <div id="services-empty" class="empty-state hidden">No hay servicios que coincidan con la búsqueda.</div>
       </section>
 
+      <!-- OFFICE IA TAB -->
+      <section id="tab-office" class="tab-panel">
+        <div class="office-head glass">
+          <div class="office-title">
+            <div class="office-kicker">HOMELAB CORP LIVE · GEMELO DIGITAL</div>
+            <h2>🏢 Oficina IA</h2>
+            <p class="muted">Nueve personajes, actividades reales del ledger y Sentinel. Toque a cualquiera para ver su ficha.</p>
+          </div>
+          <div class="office-controls">
+            <div class="live-pill"><span class="live-dot"></span><span>EN VIVO · 4 s</span></div>
+            <div class="office-stats" id="office-stats"></div>
+            <button id="office-convene" class="btn btn-primary office-convene" type="button">⚡ Convocar Ronda General</button>
+          </div>
+        </div>
+        <div class="office-stage-card glass">
+          <div id="office-stage" class="office-stage" aria-label="Escenario animado HomeLab Corp HQ"></div>
+          <div id="office-status" class="office-status" aria-live="polite">Conectando con HomeLab Corp…</div>
+        </div>
+        <div id="office-cards" class="office-cards" aria-label="Personal de HomeLab Corp"></div>
+        <div class="office-legend" id="office-legend"></div>
+      </section>
+
       <!-- ACTIONS TAB -->
       <section id="tab-actions" class="tab-panel">
         <div class="section-head">
@@ -169,6 +196,7 @@
 
     <nav class="bottom-nav glass">
       <button class="bottom-nav-btn active" data-tab="services"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>Servicios</span></button>
+      <button class="bottom-nav-btn" data-tab="office"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18M5 21V5l7-2 7 2v16M9 21v-5h6v5M9 8h2M13 8h2M9 12h2M13 12h2"/></svg><span>Oficina IA</span></button>
       <button class="bottom-nav-btn" data-tab="actions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2L4.5 13H11l-1 9 9.5-11H13z"/></svg><span>Acciones</span></button>
       <button class="bottom-nav-btn" data-tab="notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5A2.5 2.5 0 016.5 3H20v18H6.5A2.5 2.5 0 014 18.5v-13z"/><path d="M4 18.5A2.5 2.5 0 016.5 16H20"/></svg><span>Bitácora</span></button>
     </nav>
@@ -188,5 +216,6 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="/static/app.js"></script>
+  <script src="/static/office.js"></script>
 </body>
 </html>

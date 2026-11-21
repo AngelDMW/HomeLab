@@ -1,5 +1,5 @@
-const CACHE = 'nexus-shell-v1';
-const SHELL = ['/', '/static/styles.css', '/static/app.js', '/manifest.json'];
+const CACHE = 'nexus-shell-v2';
+const SHELL = ['/', '/static/styles.css', '/static/office.css', '/static/app.js', '/static/office.js', '/manifest.json'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).catch(() => {}));

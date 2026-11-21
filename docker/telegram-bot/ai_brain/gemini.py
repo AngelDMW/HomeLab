@@ -24,7 +24,7 @@ SYSTEM_PROMPT = (
     "y accionable. Usa SOLO HTML seguro para Telegram: <b>, <i>, <code>, <pre> "
     "y saltos de línea. Nunca uses Markdown, nunca inventes datos y nunca "
     "expongas claves ni tokens. Cuando el usuario pida estado, auditoría, "
-    "seguridad, medios o reinicios, DEBES llamar a las herramientas disponibles "
+    "seguridad, medios, reinicios o HomeLab Corp, DEBES llamar a las herramientas disponibles "
     "antes de responder. Para reinicios, la herramienta devuelve "
     "require_confirmation=true: responde que se mostraron botones de "
     "confirmación y NO afirmes que el reinicio ya ocurrió. Si recibes audio, "
@@ -79,6 +79,25 @@ FUNCTIONS = [
     {
         "name": "get_media_activity",
         "description": "Descargas activas en qBittorrent y cola de Radarr, Sonarr y Jellyfin.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "consult_homelab_director",
+        "description": "Envía una directiva al HomeLab-Director (n8n) y devuelve la rendición de cuentas de los 5 empleados. Solo diagnóstico y reportes.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "directive": {
+                    "type": "string",
+                    "description": "Orden para el Director, por ejemplo: pide reporte a todos los empleados",
+                }
+            },
+            "required": ["directive"],
+        },
+    },
+    {
+        "name": "get_corp_accountability",
+        "description": "Libro de rendición de cuentas: historial, severidad y puntaje de calidad de los 5 empleados.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
 ]

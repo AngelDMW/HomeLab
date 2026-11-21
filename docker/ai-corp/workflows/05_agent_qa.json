@@ -1,0 +1,326 @@
+{
+  "name": "HomeLab Corp — Empleado Agent-QA",
+  "nodes": [
+    {
+      "id": "wh",
+      "name": "Webhook QA",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent-qa",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "66666666-6666-4666-8666-666666666666"
+    },
+    {
+      "id": "tools",
+      "name": "Tools QA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://corp-tools-api:8006/api/tools/qa",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 100000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ledger",
+      "name": "Ledger QA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        220
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://corp-tools-api:8006/api/ledger/summary",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "analyze",
+      "name": "Analizar QA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const _wh = $('Webhook QA').first().json || {};\nconst d = _wh.body || _wh;\nconst q = $('Tools QA').first().json || {};\nconst l = $('Ledger QA').first().json || {};\nconst reports = Array.isArray(d.reports) ? d.reports : [];\nconst assessments = reports.map(r => {\n  let score = 1.0;\n  if (r.severity === 'WARN') score -= 0.18;\n  if (r.severity === 'CRIT') score -= 0.45;\n  if (!r.summary || r.summary.length < 30) score -= 0.15;\n  if (!Array.isArray(r.findings) || !r.findings.length) score -= 0.08;\n  score = Math.max(0, Math.min(1, Math.round(score * 100) / 100));\n  return {\n    report_id: r.report_id || null,\n    employee: r.employee || 'desconocido',\n    quality_score: score,\n    reason: 'Revisión Agent-QA: severidad ' + (r.severity || '?') +\n      ', evidencia ' + (r.evidence ? 'presente' : 'ausente')\n  };\n});\nconst severity = (q.anomalies_count || 0) > 0 ? 'WARN' : 'OK';\nconst findings = [];\nif ((q.probes_ok || 0) < (q.probes_total || 0)) findings.push({level:'WARN', text:(q.probes_total - q.probes_ok) + ' sondas no OK'});\nif ((q.anomalies_count || 0) > 0) findings.push({level:'WARN', text:q.anomalies_count + ' anomalías recientes'});\nif (!findings.length) findings.push({level:'OK', text:'Auditoría limpia y entregas completas'});\nconst evidence = JSON.stringify({audit:q, ledger:l}).slice(0, 4500);\nconst prompt = `Eres Agent-QA, auditor de calidad de HomeLab Corp. Has recibido\nlas entregas de los otros cuatro empleados y el resultado de una auditoría real\nde Sentinel. Escribe un dictamen de 3 a 5 líneas en español sobre la calidad de\nlas entregas y el estado del clúster. No inventes datos y no propongas acciones\ndestructivas.\n\nENTREGAS:\n${JSON.stringify(reports.map(r=>({employee:r.employee, severity:r.severity, summary:r.summary})))}\n\nAUDITORÍA:\n${evidence}\n\nPUNTAJES ASIGNADOS:\n${JSON.stringify(assessments)}\n`;\nreturn [{json: {\n  employee:'Agent-QA', severity, quality_score:0.95, findings, evidence, prompt,\n  assessments, directive:d.directive || '', task_id:d.task_id || null,\n  round_id:d.round_id || null\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "llm",
+      "name": "LLM QA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENROUTER_API_KEY }}"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "http://192.168.1.4:5678"
+            },
+            {
+              "name": "X-Title",
+              "value": "HomeLab Corp"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENROUTER_MODEL || 'google/gemini-2.5-flash', temperature: 0.25, max_tokens: 450, messages: [{role:'system', content:'Responde siempre en español. Sé preciso, breve y accionable. Usa solo texto plano, sin Markdown. No inventes datos y nunca menciones claves, tokens ni rutas de credenciales. No propongas reiniciar contenedores ni borrar datos: esta plataforma es solo de diagnóstico.'},{role:'user', content: $('Analizar QA').first().json.prompt}] }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "draft",
+      "name": "Redactar informe QA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const a = $('Analizar QA').first().json || {};\nconst l = $('LLM QA').first().json || {};\nconst c = (l.choices || [])[0];\nconst text = ((c && c.message && c.message.content) || '').trim();\nreturn [{json: {\n  employee:'Agent-QA', severity:a.severity, quality_score:a.quality_score,\n  summary:(text || 'Auditoría completada').slice(0,2500), findings:a.findings || [],\n  assessments:a.assessments || [], evidence:a.evidence || '',\n  directive:a.directive || '', task_id:a.task_id || null, round_id:a.round_id || null\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "report",
+      "name": "Rendir cuentas QA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://corp-tools-api:8006/api/ledger/report",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Redactar informe QA').first().json) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "resp",
+      "name": "Respuesta QA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r = $('Rendir cuentas QA').first().json || {};\nconst d = $('Redactar informe QA').first().json || {};\nreturn [{json:{...d, report_id:r.report_id || null, ledger_ok:!!r.ok}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "reply",
+      "name": "Responder QA",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Respuesta QA').first().json) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook QA": {
+      "main": [
+        [
+          {
+            "node": "Tools QA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tools QA": {
+      "main": [
+        [
+          {
+            "node": "Ledger QA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ledger QA": {
+      "main": [
+        [
+          {
+            "node": "Analizar QA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analizar QA": {
+      "main": [
+        [
+          {
+            "node": "LLM QA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM QA": {
+      "main": [
+        [
+          {
+            "node": "Redactar informe QA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redactar informe QA": {
+      "main": [
+        [
+          {
+            "node": "Rendir cuentas QA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rendir cuentas QA": {
+      "main": [
+        [
+          {
+            "node": "Respuesta QA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta QA": {
+      "main": [
+        [
+          {
+            "node": "Responder QA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder QA": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": false
+  },
+  "pinData": {},
+  "active": true
+}

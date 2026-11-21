@@ -499,6 +499,40 @@ def probe_node2_metrics():
     }
 
 
+def probe_node2_ai_corp():
+    """Sonda L7 de la plataforma HomeLab Corp desplegada en el Nodo 2."""
+    tools = _http_get('http://192.168.1.4:8006/health', max_text=800)
+    n8n = _http_get('http://192.168.1.4:5678/healthz', max_text=800)
+    tools_healthy = False
+    if tools.get('ok'):
+        try:
+            tools_healthy = json.loads(tools.get('text') or '{}').get('ok') is True
+        except Exception:
+            tools_healthy = False
+    n8n_healthy = n8n.get('ok')
+    if tools_healthy and n8n_healthy:
+        status = 'ok'
+    elif tools_healthy or n8n_healthy:
+        status = 'degraded'
+    else:
+        status = 'down'
+    return {
+        'name': 'Nodo 2 AI Corp (n8n + tools)',
+        'host': settings.node2_host,
+        'corp_tools_url': 'http://192.168.1.4:8006/health',
+        'n8n_url': 'http://192.168.1.4:5678/healthz',
+        'corp_tools_ok': tools_healthy,
+        'n8n_ok': n8n_healthy,
+        'corp_tools_status': tools.get('status_code'),
+        'n8n_status': n8n.get('status_code'),
+        'latency_ms': max(tools.get('latency_ms') or 0, n8n.get('latency_ms') or 0),
+        'status': status,
+        'error': None if status == 'ok' else (
+            tools.get('error') or n8n.get('error') or 'uno o ambos endpoints no respondieron'
+        ),
+    }
+
+
 def run_all_probes():
     results = {}
     for key, fn in [
@@ -511,6 +545,7 @@ def run_all_probes():
         ('jellyfin', probe_jellyfin),
         ('node2_portainer', probe_node2_portainer),
         ('node2_immich_ml', probe_node2_immich_ml),
+        ('node2_ai_corp', probe_node2_ai_corp),
         ('node2_metrics', probe_node2_metrics),
     ]:
         try:

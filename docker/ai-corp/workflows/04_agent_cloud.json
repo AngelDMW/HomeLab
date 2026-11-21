@@ -1,0 +1,283 @@
+{
+  "name": "HomeLab Corp — Empleado Agent-Cloud",
+  "nodes": [
+    {
+      "id": "wh",
+      "name": "Webhook Cloud",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent-cloud",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "55555555-5555-4555-8555-555555555555"
+    },
+    {
+      "id": "tools",
+      "name": "Tools Cloud",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://corp-tools-api:8006/api/tools/cloud",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "analyze",
+      "name": "Analizar Cloud",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const _wh = $('Webhook Cloud').first().json || {};\nconst d = _wh.body || _wh;\nconst t = $('Tools Cloud').first().json || {};\nconst findings = [];\n\nif (!t.nextcloud || !t.nextcloud.reachable) findings.push({level:'CRIT', text:'Nextcloud no responde'});\nif (!t.immich || !t.immich.reachable) findings.push({level:'CRIT', text:'Immich no responde'});\nif (!t.immich_ml_node2 || !t.immich_ml_node2.reachable) findings.push({level:'WARN', text:'immich-ml en Nodo 2 no responde (puede estar apagado)'});\nif (!(t.backups_count > 0)) findings.push({level:'WARN', text:'Sin backups-visibles en /mnt/node2-storage/backups-compose'});\nif (!findings.length) findings.push({level:'OK', text:'Nube, Immich y backups bajo demanda disponibles'});\n\nconst severity = findings.some(f => f.level === 'CRIT') ? 'CRIT'\n  : findings.length ? 'WARN' : 'OK';\nconst evidence = JSON.stringify({nextcloud:t.nextcloud, immich:t.immich, immich_ml:t.immich_ml_node2, backups:t.backups_recent}).slice(0, 4500);\nconst prompt = `Eres Agent-Cloud, empleado especializado de HomeLab Corp.\nTu jefe es HomeLab-Director. Analiza esta evidencia en tiempo real y entrega un\ninforme ejecutivo de 3 a 5 líneas en español, con hallazgos concretos y\nrecomendaciones de solo lectura. No reinicies nada, no borres nada, no expongas\nsecretos. Si no hay problemas, dilo explícitamente.\n\nEVIDENCIA:\n${evidence}\n\nHALLAZGOS DETERMINISTAS:\n${JSON.stringify(findings)}\n`;\nreturn [{json: {\n  employee: 'Agent-Cloud',\n  severity,\n  quality_score: 0.9,\n  findings,\n  evidence,\n  prompt,\n  directive: d.directive || '',\n  task_id: d.task_id || null,\n  round_id: d.round_id || null,\n  tool_data: t\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "llm",
+      "name": "LLM Cloud",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENROUTER_API_KEY }}"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "http://192.168.1.4:5678"
+            },
+            {
+              "name": "X-Title",
+              "value": "HomeLab Corp"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENROUTER_MODEL || 'google/gemini-2.5-flash', temperature: 0.25, max_tokens: 450, messages: [{role:'system', content:'Responde siempre en español. Sé preciso, breve y accionable. Usa solo texto plano, sin Markdown. No inventes datos y nunca menciones claves, tokens ni rutas de credenciales. No propongas reiniciar contenedores ni borrar datos: esta plataforma es solo de diagnóstico.'},{role:'user', content: $('Analizar Cloud').first().json.prompt}] }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "draft",
+      "name": "Redactar informe Cloud",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const a = $('Analizar Cloud').first().json || {};\nconst l = $('LLM Cloud').first().json || {};\nconst choices = l.choices || [];\nconst text = ((choices[0] && choices[0].message && choices[0].message.content) || '').trim();\nreturn [{json: {\n  employee: a.employee,\n  severity: a.severity,\n  quality_score: a.quality_score,\n  summary: (text || a.summary || 'Sin hallazgos').slice(0, 2500),\n  findings: a.findings || [],\n  evidence: a.evidence || '',\n  directive: a.directive || '',\n  task_id: a.task_id || null,\n  round_id: a.round_id || null\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "report",
+      "name": "Rendir cuentas Cloud",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://corp-tools-api:8006/api/ledger/report",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Redactar informe Cloud').first().json) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "resp",
+      "name": "Respuesta Cloud",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r = $('Rendir cuentas Cloud').first().json || {};\nconst d = $('Redactar informe Cloud').first().json || {};\nreturn [{json: {...d, report_id: r.report_id || null, ledger_ok: !!r.ok}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "reply",
+      "name": "Responder Cloud",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Respuesta Cloud').first().json) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Cloud": {
+      "main": [
+        [
+          {
+            "node": "Tools Cloud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tools Cloud": {
+      "main": [
+        [
+          {
+            "node": "Analizar Cloud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analizar Cloud": {
+      "main": [
+        [
+          {
+            "node": "LLM Cloud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Cloud": {
+      "main": [
+        [
+          {
+            "node": "Redactar informe Cloud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redactar informe Cloud": {
+      "main": [
+        [
+          {
+            "node": "Rendir cuentas Cloud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rendir cuentas Cloud": {
+      "main": [
+        [
+          {
+            "node": "Respuesta Cloud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta Cloud": {
+      "main": [
+        [
+          {
+            "node": "Responder Cloud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder Cloud": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": false
+  },
+  "pinData": {},
+  "active": true
+}

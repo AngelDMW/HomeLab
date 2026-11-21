@@ -10,6 +10,9 @@ services:
       - AI_BRAIN_PORT=5057
       - GEMINI_MODEL=gemini-2.5-flash
       - SENTINEL_URL=http://127.0.0.1:9090
+      - CORP_DIRECTOR_URL=http://192.168.1.4:5678/webhook/director
+      - CORP_LEDGER_URL=http://192.168.1.4:8006/api/ledger/summary
+      - CORP_INTERNAL_TOKEN=${CORP_INTERNAL_TOKEN:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /:/hostfs:ro

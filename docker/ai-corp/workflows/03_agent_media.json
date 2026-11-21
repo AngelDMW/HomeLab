@@ -1,0 +1,283 @@
+{
+  "name": "HomeLab Corp — Empleado Agent-Media",
+  "nodes": [
+    {
+      "id": "wh",
+      "name": "Webhook Media",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent-media",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "44444444-4444-4444-8444-444444444444"
+    },
+    {
+      "id": "tools",
+      "name": "Tools Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://corp-tools-api:8006/api/tools/media",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "analyze",
+      "name": "Analizar Media",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const _wh = $('Webhook Media').first().json || {};\nconst d = _wh.body || _wh;\nconst t = $('Tools Media').first().json || {};\nconst findings = [];\n\nif (!t.ok) findings.push({level:'CRIT', text:'Jellyfin no responde'});\nif (!t.seerr || !t.seerr.reachable) findings.push({level:'WARN', text:'HomeFlix/Seerr no responde'});\nif (!t.threadfin || !t.threadfin.reachable) findings.push({level:'WARN', text:'Threadfin no responde'});\nif (t.qbittorrent && t.qbittorrent.available && t.qbittorrent.active_torrents > 12) findings.push({level:'WARN', text:t.qbittorrent.active_torrents + ' torrents activos'});\nfor (const k of ['radarr','sonarr']) {\n  const q = t[k] || {};\n  if (q.available && (q.queued || 0) > 20) findings.push({level:'WARN', text:k + ' con ' + q.queued + ' elementos en cola'});\n}\nif (!findings.length) findings.push({level:'OK', text:'Stack multimedia sin incidencias'});\n\nconst severity = findings.some(f => f.level === 'CRIT') ? 'CRIT'\n  : findings.length ? 'WARN' : 'OK';\nconst evidence = JSON.stringify({jellyfin:t.jellyfin, seerr:t.seerr, threadfin:t.threadfin, qbittorrent:t.qbittorrent, radarr:t.radarr, sonarr:t.sonarr}).slice(0, 4500);\nconst prompt = `Eres Agent-Media, empleado especializado de HomeLab Corp.\nTu jefe es HomeLab-Director. Analiza esta evidencia en tiempo real y entrega un\ninforme ejecutivo de 3 a 5 líneas en español, con hallazgos concretos y\nrecomendaciones de solo lectura. No reinicies nada, no borres nada, no expongas\nsecretos. Si no hay problemas, dilo explícitamente.\n\nEVIDENCIA:\n${evidence}\n\nHALLAZGOS DETERMINISTAS:\n${JSON.stringify(findings)}\n`;\nreturn [{json: {\n  employee: 'Agent-Media',\n  severity,\n  quality_score: 0.9,\n  findings,\n  evidence,\n  prompt,\n  directive: d.directive || '',\n  task_id: d.task_id || null,\n  round_id: d.round_id || null,\n  tool_data: t\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "llm",
+      "name": "LLM Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENROUTER_API_KEY }}"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "http://192.168.1.4:5678"
+            },
+            {
+              "name": "X-Title",
+              "value": "HomeLab Corp"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENROUTER_MODEL || 'google/gemini-2.5-flash', temperature: 0.25, max_tokens: 450, messages: [{role:'system', content:'Responde siempre en español. Sé preciso, breve y accionable. Usa solo texto plano, sin Markdown. No inventes datos y nunca menciones claves, tokens ni rutas de credenciales. No propongas reiniciar contenedores ni borrar datos: esta plataforma es solo de diagnóstico.'},{role:'user', content: $('Analizar Media').first().json.prompt}] }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "draft",
+      "name": "Redactar informe Media",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const a = $('Analizar Media').first().json || {};\nconst l = $('LLM Media').first().json || {};\nconst choices = l.choices || [];\nconst text = ((choices[0] && choices[0].message && choices[0].message.content) || '').trim();\nreturn [{json: {\n  employee: a.employee,\n  severity: a.severity,\n  quality_score: a.quality_score,\n  summary: (text || a.summary || 'Sin hallazgos').slice(0, 2500),\n  findings: a.findings || [],\n  evidence: a.evidence || '',\n  directive: a.directive || '',\n  task_id: a.task_id || null,\n  round_id: a.round_id || null\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "report",
+      "name": "Rendir cuentas Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://corp-tools-api:8006/api/ledger/report",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Redactar informe Media').first().json) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "resp",
+      "name": "Respuesta Media",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r = $('Rendir cuentas Media').first().json || {};\nconst d = $('Redactar informe Media').first().json || {};\nreturn [{json: {...d, report_id: r.report_id || null, ledger_ok: !!r.ok}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "reply",
+      "name": "Responder Media",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Respuesta Media').first().json) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Media": {
+      "main": [
+        [
+          {
+            "node": "Tools Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tools Media": {
+      "main": [
+        [
+          {
+            "node": "Analizar Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analizar Media": {
+      "main": [
+        [
+          {
+            "node": "LLM Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Media": {
+      "main": [
+        [
+          {
+            "node": "Redactar informe Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redactar informe Media": {
+      "main": [
+        [
+          {
+            "node": "Rendir cuentas Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rendir cuentas Media": {
+      "main": [
+        [
+          {
+            "node": "Respuesta Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta Media": {
+      "main": [
+        [
+          {
+            "node": "Responder Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder Media": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": false
+  },
+  "pinData": {},
+  "active": true
+}

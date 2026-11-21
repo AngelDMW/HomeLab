@@ -11,6 +11,13 @@ import httpx
 
 SENTINEL = os.environ.get("SENTINEL_URL", "http://127.0.0.1:9090").rstrip("/")
 DOCKER_SOCK = os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock")
+CORP_DIRECTOR_URL = os.environ.get(
+    "CORP_DIRECTOR_URL", "http://192.168.1.4:5678/webhook/director"
+).rstrip("/")
+CORP_LEDGER_URL = os.environ.get(
+    "CORP_LEDGER_URL", "http://192.168.1.4:8006/api/ledger/summary"
+).rstrip("/")
+CORP_TOKEN = os.environ.get("CORP_INTERNAL_TOKEN", "")
 
 # Lista blanca explícita solicitada. El bot aplica la misma lista.
 ALLOWED_SERVICES = (
@@ -333,7 +340,82 @@ def get_media_activity():
     return _ok("\n".join(lines) if lines else "Sin actividad disponible.", data)
 
 
+def consult_homelab_director(directive):
+    """Envía una directiva al HomeLab-Director y muestra la rendición de cuentas.
+
+    Las cinco IAs empleadas solo hacen diagnóstico, auditoría y reportes. Esta
+    herramienta NUNCA reinicia contenedores ni borra datos.
+    """
+    directive = str(directive or "").strip()
+    if not directive:
+        directive = "Entrega un reporte de rendición de cuentas de los 5 empleados"
+    try:
+        with httpx.Client(timeout=150, follow_redirects=True) as client:
+            launched = client.post(
+                CORP_DIRECTOR_URL,
+                json={"directive": directive, "requested_by": "telegram"},
+            )
+            if launched.status_code >= 400:
+                return _err(f"Director respondió HTTP {launched.status_code}")
+            ledger = client.get(
+                CORP_LEDGER_URL,
+                headers={"X-Corp-Token": CORP_TOKEN} if CORP_TOKEN else {},
+            )
+            ledger.raise_for_status()
+            payload = ledger.json()
+    except Exception as exc:  # noqa: BLE001
+        return _err(str(exc))
+
+    employees = payload.get("employees") or []
+    lines = [f"Directiva enviada al HomeLab-Director: «{directive}»."]
+    for item in employees:
+        lines.append(
+            f"• {item.get('employee')}: {item.get('reports', 0)} informes, "
+            f"calidad media {item.get('avg_quality', 'n/d')}, "
+            f"último estado {item.get('last_severity') or 'sin datos'}."
+        )
+    tasks = payload.get("recent_tasks") or []
+    if tasks:
+        lines.append(f"Última orden: #{tasks[0].get('id')} · {tasks[0].get('status')}.")
+    return _ok("\n".join(lines), {
+        "launched": launched.status_code,
+        "employees": employees,
+        "recent_tasks": tasks[:3],
+        "recent_reports": (payload.get("recent_reports") or [])[:5],
+    })
+
+
+def get_corp_accountability():
+    """Libro de rendición de cuentas de los 5 empleados (solo lectura)."""
+    try:
+        with httpx.Client(timeout=15, follow_redirects=True) as client:
+            response = client.get(
+                CORP_LEDGER_URL,
+                headers={"X-Corp-Token": CORP_TOKEN} if CORP_TOKEN else {},
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except Exception as exc:  # noqa: BLE001
+        return _err(str(exc))
+    employees = payload.get("employees") or []
+    lines = ["📊 <b>HomeLab Corp — rendición de cuentas</b>"]
+    for item in employees:
+        lines.append(
+            f"• {item.get('employee')}: {item.get('reports', 0)} informes · "
+            f"calidad {item.get('avg_quality', 'n/d')} · "
+            f"último {item.get('last_severity') or 'sin datos'}"
+        )
+    tasks = payload.get("recent_tasks") or []
+    if tasks:
+        lines.append(f"Órdenes recientes: {len(tasks)} · última #{tasks[0].get('id')}.")
+    return _ok("\n".join(lines), payload)
+
+
 DISPATCH = {
+    "consult_homelab_director": lambda **kwargs: consult_homelab_director(
+        kwargs.get("directive", "")
+    ),
+    "get_corp_accountability": lambda **_: get_corp_accountability(),
     "get_cluster_status": lambda **_: get_cluster_status(),
     "run_sentinel_audit": lambda **_: run_sentinel_audit(),
     "manage_container": lambda service_name, action: manage_container(service_name, action),

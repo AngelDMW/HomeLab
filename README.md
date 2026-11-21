@@ -327,3 +327,35 @@ The 2026-11-20 pass applied several values at runtime; this pass verified persis
 **Commands:** `/menu` (2-column inline keyboard), `/status`, `/audit`, `/security`, `/media`, `/clear`, plus the original `/mission`, `/telemetry`, `/containers`, `/queue`, `/buscar`, `/briefing`, `/iptv`, `/disk`, `/maint`, `/node2`, `/selftest`, `/help`. Restart callbacks (`ai:restart_menu:*` → `ai:restart_yes:*` / `ai:restart_cancel:*`) always ask for confirmation. Sentinel anomalies carry `telegram_actions` with `🩺 Diagnosticar con IA` and `🔄 Reiniciar contenedor` buttons.
 
 Pre-change snapshot: `/home/mrdavid/backups-compose/20261120_telegram_ai_upgrade_pre/` (bot + Sentinel). Secrets, SQLite memory and `__pycache__` remain Git-ignored; only source files were committed.
+
+
+## HomeLab Corp — Hierarchical AI Platform on Node 2 (2026-11-21)
+
+A five-employee AI organization runs on **Nodo 2** and reports to `@ServerDMW_bot`. It is strictly diagnostic: no employee restarts containers, deletes data, or exposes secrets.
+
+| Component | Location | Role |
+| --- | --- | --- |
+| `homelab-corp-n8n` | Nodo 2 `:5678`, 1 GB limit | 6 workflows: Director + 5 employees, cron 08:00/20:00 |
+| `corp-tools-api` | Nodo 2 `:8006`, 256 MB limit | FastAPI read-only tools + SQLite accountability ledger |
+| `HomeLab-Director` | n8n webhook `/webhook/director` | Opens task → 4 employees in parallel → Agent-QA → LLM report → Telegram → closes task |
+| `Agent-Infra`, `Agent-SecOps`, `Agent-Media`, `Agent-Cloud`, `Agent-QA` | n8n webhooks `/webhook/agent-*` | Live inspection + OpenRouter reasoning + ledger reporting |
+| Sentinel probe `node2_ai_corp` | `192.168.1.3:9090` | Checks `:8006/health` and `:5678/healthz` |
+
+**Flow:** Director creates a task (`POST /api/ledger/task`) → calls 4 employees over local HTTP → each employee queries a department endpoint (`/api/tools/{infra,secops,media,cloud}`) and files a report (`POST /api/ledger/report`) → Agent-QA audits Sentinel and scores every delivery (`POST /api/ledger/score`) → Director consolidates, asks the LLM for a Spanish executive report, sends it to Telegram and closes the task.
+
+**Ledger:** `/mnt/storage/homelab-offload/ai-corp/ledger/corp_ledger.sqlite3` with tables `tasks` and `employee_reports` (`OK`/`WARN`/`CRIT`, QA score). Endpoint `GET /api/ledger/summary` (token-protected) exposes accountability.
+
+**Security:** `X-Corp-Token` protects every tool/ledger endpoint; n8n encryption key and internal token generated locally in `.env` (never committed). Node 1 is queried over HTTP (Sentinel + published services) because Nodo 2 has no SSH trust back to Nodo 1. Only the authorized `CHAT_ID` can trigger `/corp`.
+
+**Telegram:** `/corp` with no arguments shows the accountability ledger; `/corp <directive>` sends a directive to the Director. Natural language mentioning "HomeLab Corp / Director / empleados" routes to the same tool. No inline button triggers destructive actions.
+
+**Operations:**
+- Stack source (IaC mirror): `/home/mrdavid/HomeLab/docker/ai-corp/` on Nodo 1 and `/home/mrdavid/HomeLab-node2/ai-corp/` on Nodo 2.
+- Data: `/mnt/storage/homelab-offload/ai-corp/{n8n,ledger}/` (the only Nodo 2 storage area used).
+- Deploy: `ssh homelab-node2 "cd /home/mrdavid/HomeLab-node2/ai-corp && docker compose up -d --build"`.
+- Import workflows after changes: `docker exec -u node -e N8N_USER_FOLDER=/home/node/.n8n homelab-corp-n8n n8n import:workflow --separate --input=/workflows`, then publish each ID from `n8n list:workflow --onlyId` with `n8n publish:workflow --id=<id>` and `docker restart homelab-corp-n8n` so production webhooks register.
+- Manual round: `curl -X POST http://192.168.1.4:5678/webhook/director -H 'Content-Type: application/json' -d '{"directive":"Ejecuta una ronda inicial de inspección con los 5 empleados y entrega el primer reporte ejecutivo"}'`.
+- Verify: `GET http://192.168.1.4:8006/health`, `GET http://192.168.1.4:5678/healthz`, `POST http://192.168.1.3:9090/api/audit` (14 probes, `node2_ai_corp` OK, 0 anomalies).
+- Backup before changes: `/home/mrdavid/backups-compose/20261121_ai_corp_n8n_pre/`.
+
+**Verified:** 6/6 workflows imported and active; webhooks registered with stable `webhookId`; ledger populated by a real end-to-end round; consolidated report delivered to Telegram; Nodo 2 RAM within the 3.8 GiB budget; Sentinel audit `ok:true` with 0 anomalies.

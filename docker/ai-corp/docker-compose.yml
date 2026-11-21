@@ -1,0 +1,64 @@
+services:
+  corp-tools-api:
+    build: ./corp-tools-api
+    image: homelab-corp-tools:local
+    container_name: corp-tools-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - CORP_LEDGER_DB=/app/data/corp_ledger.sqlite3
+      - CORP_BIND_HOST=0.0.0.0
+      - CORP_BIND_PORT=8006
+    ports:
+      - "8006:8006"
+    volumes:
+      - /mnt/storage/homelab-offload/ai-corp/ledger:/app/data
+      - /mnt/storage/homelab-offload:/mnt/storage/homelab-offload:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - corp_net
+    mem_limit: 256m
+    cpus: 0.35
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: homelab-corp-n8n
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - N8N_PORT=5678
+      - N8N_SECURE_COOKIE=false
+      - WEBHOOK_URL=http://192.168.1.4:5678/
+      - N8N_DIAGNOSTICS_ENABLED=false
+      # n8n 2.x bloquea $env en expresiones por defecto; sin esto los tokens
+      # de las cabeceras quedan vacíos y todas las llamadas a la API fallan.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - N8N_USER_FOLDER=/home/node/.n8n
+      - GENERIC_TIMEZONE=America/Santo_Domingo
+      - TZ=America/Santo_Domingo
+      - NODE_OPTIONS=--max-old-space-size=768
+    ports:
+      - "5678:5678"
+    volumes:
+      - /mnt/storage/homelab-offload/ai-corp/n8n:/home/node/.n8n
+      - ./workflows:/workflows:ro
+    networks:
+      - corp_net
+    mem_limit: 1024m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  corp_net:
+    driver: bridge

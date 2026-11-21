@@ -495,6 +495,7 @@ const COMMANDS = [
   { command: 'disk', description: 'Detalle de almacenamiento' },
   { command: 'maint', description: 'Mantenimiento y limpieza' },
   { command: 'node2', description: 'Estado y control del Nodo 2' },
+  { command: 'corp', description: 'HomeLab Corp: directivas al Director y rendición de cuentas' },
   { command: 'selftest', description: 'Diagnóstico de integraciones' },
   { command: 'help', description: 'Ayuda y comandos' },
 ];
@@ -558,6 +559,15 @@ async function handleCommand(text) {
       }
       return showNode2();
     }
+    case 'corp':
+      if (!argument) {
+        return sendAi(
+          'Muestra el libro de rendición de cuentas de HomeLab Corp: estado, severidad y puntaje de calidad de los 5 empleados.',
+        );
+      }
+      return sendAi(
+        `Envía esta directiva al HomeLab-Director y entrega el resultado: ${argument}`,
+      );
     case 'help':
       return notify(ui.helpText());
     case 'selftest':
@@ -581,6 +591,10 @@ async function handleNatural(text) {
       return confirmNode2Shutdown();
     }
     return showNode2();
+  }
+
+  if (/\b(home\s*lab\s*corp|corporaci[oó]n|director|empleados|rendici[oó]n de cuentas)\b/i.test(text)) {
+    return sendAi(`Gestiona HomeLab Corp con esta instrucción: ${text}`);
   }
 
   const restartMatch = text.match(/^(?:reinicia|reiniciar|restart)\s+(.+)$/i);

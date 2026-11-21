@@ -1,6 +1,6 @@
 # Two-Node Hybrid HomeLab Infrastructure
 
-A self-hosted platform that separates always-on services from on-demand compute. Node 1 runs Debian 12 and 20 containers for Nextcloud, Immich, Jellyfin, Pi-hole and active defense on a Dell OptiPlex 5040; Node 2 stays off until Wake-on-LAN brings it up for Immich machine learning and cold backups. Remote access goes through a Tailscale tailnet, with no inbound ports exposed to the internet.
+A self-hosted platform that separates always-on services from on-demand compute. Node 1 runs Debian 12 and 21 containers for Nextcloud, Immich, Jellyfin, Pi-hole and active defense on a Dell OptiPlex 5040; Node 2 stays off until Wake-on-LAN brings it up for Immich machine learning and cold backups. Remote access goes through a Tailscale tailnet, with no inbound ports exposed to the internet.
 
 ## System Architecture
 
@@ -63,7 +63,7 @@ LAN clients connect to the static addresses on Node 1. Tailscale clients use the
 | Power | 24/7 | On demand, `Wake-on: g` on `enp3s0` |
 | Workloads | Nextcloud, Immich server, PostgreSQL and Valkey, Pi-hole, Unbound, CrowdSec, Jellyfin, the Servarr stack, Threadfin, Seerr, Portainer, ChatOps bot, Sentinel AI | `immich-machine-learning`, `portainer_agent`, ML model cache and the backup target |
 
-Node 1 has 7.6 GiB usable and currently uses 4.4 GiB across 20 containers. Immich server alone reached 1.55 GiB during indexing. A 2.5 GiB machine-learning worker on the same host would leave under 1 GiB of headroom and force page-cache reclaim under indexing load. Node 2 has 3.8 GiB and a GPU that exposes VA-API, so it takes the ML container and the backup disk. The split also keeps DNS, Nextcloud and Jellyfin available when Node 2 is off.
+Node 1 has 7.6 GiB usable and currently uses 3.9 GiB across 21 containers. Immich server alone reached 1.55 GiB during indexing. A 2.5 GiB machine-learning worker on the same host would leave under 1 GiB of headroom and force page-cache reclaim under indexing load. Node 2 has 3.8 GiB and a GPU that exposes VA-API, so it takes the ML container and the backup disk. The split also keeps DNS, Nextcloud and Jellyfin available when Node 2 is off.
 
 Node 2 is a capacity and storage tier, not a standby cluster. There is no automatic failover for Pi-hole, Nextcloud or the media stack. A Node 1 disk failure is a restore-from-backup event, not a cluster election.
 
@@ -168,8 +168,10 @@ HomeLab/
 │   │   └── seerr-theme/
 │   │       ├── conf/default.conf
 │   │       └── html/custom-theme.css
-│   ├── nextcloud/                Nextcloud and its external volume
-│   │   └── docker-compose.yml
+│   ├── nextcloud/                Nextcloud + PostgreSQL and data volume
+│   │   ├── docker-compose.yml
+│   │   ├── Dockerfile            nextcloud:latest + ffmpeg
+│   │   └── .env.example          NEXTCLOUD_DB_PASSWORD
 │   ├── pihole/                   DNS sinkhole + recursive Unbound
 │   │   ├── docker-compose.yml
 │   │   ├── unbound/homelab.conf
@@ -270,6 +272,40 @@ Config files added: `/etc/sysctl.d/99-homelab-tuning.conf` (N1), `/etc/sysctl.d/
 
 **Verified final state:** Sentinel `POST /api/audit` → `ok:true`, **13/13 probes OK, 0 anomalies** (`threadfin`, `pihole`, `unbound_dnssec`, `crowdsec_ips`, `nextcloud`, `immich`, `jellyfin`, `node2_portainer`, `node2_immich_ml`, `node2_metrics`, `containers_logs`, `disk`, `nfs_node2_storage`). DNSSEC `sigfail`→`SERVFAIL` / `sigok`→`NOERROR`; CrowdSec bouncer active with 0 decisions and the private-subnet whitelist intact; `/dev/sda1` 86% (32 GB free, below the 92% alert); Nodo 2 RAM 24.4%; no OOMKilled and no restart loops; all official healthchecks healthy.
 
+
+## Re-Auditoría y Persistencia Total (2026-11-21)
+
+The 2026-11-20 pass applied several values at runtime; this pass verified persistence end to end, found that `/etc/sysctl.d/99-homelab-tuning.conf`, `/etc/sysctl.d/99-homelab-node2-tuning.conf` and Unbound's `serve-expired` were **not present on disk**, recreated them, and closed the remaining Nextcloud gaps. Snapshot: `/home/mrdavid/backups-compose/20261120_full_cluster_tune_pre/` (compose files, Sentinel/security/Unbound configs, sysctl, iptables/ipset, Node 2 NFS/fstab, Nextcloud SQLite DB 88 MB, `config.php` and the original `PgSqlTools.php`).
+
+| Area | Parameter / change | Node 1 | Node 2 | Verification |
+| --- | --- | --- | --- | --- |
+| Memory | `vm.swappiness` | **10** (persisted) | **15** (persisted) | `sysctl --system` |
+| Memory | `vm.vfs_cache_pressure` | **50** | **50** | applied |
+| FS watch | `fs.inotify.max_user_watches` / `max_user_instances` | **524288 / 1024** | — | applied |
+| Network | `rmem_max` / `wmem_max` | **16 MB** | **16 MB** | applied |
+| Network | `tcp_rmem` / `tcp_wmem` max | **16 MB** | **16 MB** | applied |
+| Network | `net.core.somaxconn` | **4096** | **4096** | applied |
+| SSD | `fstrim.timer` | enabled + active | enabled + active | `systemctl is-*` |
+| NFS | `RPCNFSDCOUNT` / threads | client `soft,timeo=30` | **8 / 8** | `/proc/fs/nfsd/threads` |
+| NFS | Throughput (1 GbE) | **62.5 MB/s write** | 809 GB free | `dd conv=fdatasync` |
+| DNS | Unbound `prefetch`, `prefetch-key`, `serve-expired*` | **all yes** | — | `unbound-checkconf` OK |
+| DNS | Pi-hole `maxDBdays` | **14** | — | compose env + `pihole.toml` |
+| Nextcloud | `maintenance:repair --include-expensive` | mimetypes/duplicatefinder repaired | — | `setupchecks`: no mimetype warning |
+| Nextcloud | Maintenance window | **03:00** | — | `maintenance_window_start=3` |
+| Nextcloud | ffmpeg for Memories | **7.1.5** in custom image | — | `occ config:app:get memories ffmpeg` |
+| Nextcloud | Database engine | **SQLite 88 MB → PostgreSQL 16.16** | — | `occ status`, `setupchecks` |
+| Docker | Log rotation | 21 services, `10m`/`3` (`pihole` 10m/2, `unbound` 5m/2) | `immich-ml` | no log >50 MB |
+| Disk | Cleanup | journal **655 MB**, apt **274 MB**, images **351 MB**, build cache **762 MB** | — | free **30 → 32 GB** |
+| Jellyfin | QuickSync | H.264 encode + HEVC decode OK | — | `/dev/dri/renderD128` |
+| Immich | Version / queues / ML | **3.4.2**, queues empty, ML `pong` | ML healthy | 20,605 external assets scanned |
+| CrowdSec | Bouncer / whitelist | 0 decisions, pull active, 271 lines whitelisted | — | `cscli metrics` |
+| Sentinel | Audit | **ok:true, 0 anomalies** | — | 13 probes, no non-OK state |
+
+**Nextcloud database migration:** a dedicated `postgres:16-alpine` container (`nextcloud-db`, 384 MB limit, `nextcloud_db_data` volume) now backs Nextcloud. The conversion used `occ db:convert-type --all-apps` after temporarily moving `apps/user_ldap` out of the app scan and applying a one-off guard to `lib/private/DB/PgSqlTools.php` for identity sequences with no `column_default` (the file was restored byte-for-byte afterwards; SHA-256 matches the backup). The 88 MB SQLite database remains at `data/owncloud.db` as a rollback copy; `config.php` points to `pgsql`. `NEXTCLOUD_DB_PASSWORD` lives only in `docker/nextcloud/.env` (untracked); `.env.example` documents the variable. Back up the new database with `docker exec nextcloud-db pg_dump -U nextcloud -d nextcloud | gzip > nextcloud-$(date +%F).sql.gz` and include the `nextcloud_nextcloud_db_data` volume in the off-site copy.
+
+**Findings left untouched (no data changes):** `media/peliculas` and `media/series` are empty and 13 GB sit in `media/descargas`; Radarr/Sonarr queues are empty and nothing was moved or deleted. Nextcloud still logs `memories` indexing timeouts (39 errors since Nov 17) and the disabled `admin_audit` app prints a harmless `Could not boot` line on `occ`; the HSTS warning is expected because the instance is served over plain HTTP on the LAN. The SQLite warning is gone now that PostgreSQL is active.
+
+**Verified final state:** `/dev/sda1` **86% (32 GB free)**, Node 1 RAM **~3.9 GB used / ~3.9 GB available**, **21 containers**, no OOMKilled and no restart loops; Node 2 RAM **989 MB used / 2.9 GB available**, `/mnt/storage` **8% (809 GB free)**, NFS 8 threads; DNSSEC `sigfail`→`SERVFAIL` / `sigok`→`NOERROR`; CrowdSec bouncer active with 0 decisions; Sentinel `ok:true` with 0 anomalies.
 
 ## Telegram Bot 3.0 — Gemini AI ChatOps (2026-11-20)
 

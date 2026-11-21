@@ -1,11 +1,41 @@
 services:
+  nextcloud-db:
+    image: postgres:16-alpine
+    container_name: nextcloud-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nextcloud
+      POSTGRES_USER: nextcloud
+      POSTGRES_PASSWORD: '${NEXTCLOUD_DB_PASSWORD:?define NEXTCLOUD_DB_PASSWORD in .env}'
+      TZ: 'America/Santo_Domingo'
+    volumes:
+      - nextcloud_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nextcloud -d nextcloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    mem_limit: 384m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   nextcloud:
-    image: nextcloud:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: homelab-nextcloud:latest
     container_name: nextcloud
     ports:
       - "8080:80"
     volumes:
       - nextcloud_nextcloud_data:/var/www/html
+    depends_on:
+      nextcloud-db:
+        condition: service_healthy
     restart: unless-stopped
     logging:
       driver: json-file
@@ -16,3 +46,4 @@ services:
 volumes:
   nextcloud_nextcloud_data:
     external: true
+  nextcloud_db_data:

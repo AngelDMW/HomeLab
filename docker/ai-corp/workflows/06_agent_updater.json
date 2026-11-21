@@ -1,0 +1,355 @@
+{
+  "name": "HomeLab Corp — Empleado Agent-Updater",
+  "nodes": [
+    {
+      "id": "wh",
+      "name": "Webhook Updater",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent-updater",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "77777777-7777-4777-8777-777777777777"
+    },
+    {
+      "id": "prep",
+      "name": "Preparar Updater",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const _wh = $('Webhook Updater').first().json || {};\nconst d = _wh.body || _wh;\nconst directive = String(d.directive || '');\nconst apply = d.apply_updates === true || /aplicar actualiz|apply updates|actualiza ahora/i.test(directive);\nreturn [{json: {\n  dry_run: !apply,\n  directive,\n  task_id: d.task_id || null,\n  round_id: d.round_id || null,\n  requested_by: d.requested_by || 'director'\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "tools",
+      "name": "Tools Updater",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://corp-tools-api:8006/api/tools/updater",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 180000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ all: true, dry_run: $('Preparar Updater').first().json.dry_run, requested_by: 'agent-updater' }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "hist",
+      "name": "Historial Updater",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://corp-tools-api:8006/api/tools/updater/history",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 120000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "analyze",
+      "name": "Analizar Updater",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const _wh = $('Webhook Updater').first().json || {};\nconst d = _wh.body || _wh;\nconst p = $('Preparar Updater').first().json || {};\nconst t = $('Tools Updater').first().json || {};\nconst h = $('Historial Updater').first().json || {};\nconst results = t.results || [];\nconst rolled = results.filter(r => r.rolled_back);\nconst failed = results.filter(r => !r.ok);\nconst updated = results.filter(r => r.ok && r.updated);\nconst findings = [];\nif (rolled.length) findings.push({level:'CRIT', text:'Rollback ejecutado en: ' + rolled.map(r=>r.service).join(', ')});\nif (failed.length) findings.push({level:'CRIT', text:'Fallos de actualización: ' + failed.map(r=>r.service).join(', ')});\nif (updated.length) findings.push({level:'OK', text:'Actualizaciones aplicadas y sanas: ' + updated.map(r=>r.service).join(', ')});\nif (!findings.length) findings.push({level:'OK', text:p.dry_run ? 'Ronda en seco: sin cambios; rollback garantizado si falla el healthcheck' : 'Sin cambios de digest disponibles'});\nconst severity = (rolled.length || failed.length) ? 'CRIT' : 'OK';\nconst evidence = JSON.stringify({dry_run:p.dry_run, results:results.slice(0,20), history:(h.updates||[]).slice(0,10)}).slice(0,4500);\nconst prompt = `Eres Agent-Updater, especialista en actualizaciones seguras de HomeLab Corp.\nTu jefe es HomeLab-Director. Informa en 3 a 5 líneas en español: servicios revisados,\ndigests antes/después, healthchecks verificados y si hubo rollback. Nunca propongas\nborrar datos ni desactivar healthchecks. No inventes resultados.\n\nMODO: ${p.dry_run ? 'SECO (sin cambios)' : 'APLICACIÓN REAL'}\nEVIDENCIA:\n${evidence}\n\nHALLAZGOS:\n${JSON.stringify(findings)}\n`;\nreturn [{json: {\n  employee:'Agent-Updater', severity, quality_score:0.9, findings, evidence, prompt,\n  directive:d.directive || p.directive || '', task_id:d.task_id || p.task_id || null,\n  round_id:d.round_id || p.round_id || null, tool_data:t\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "llm",
+      "name": "LLM Updater",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENROUTER_API_KEY }}"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "http://192.168.1.4:5678"
+            },
+            {
+              "name": "X-Title",
+              "value": "HomeLab Corp"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENROUTER_MODEL || 'google/gemini-2.5-flash', temperature: 0.25, max_tokens: 450, messages: [{role:'system', content:'Responde siempre en español. Sé preciso, breve y accionable. Usa solo texto plano, sin Markdown. No inventes datos y nunca menciones claves, tokens ni rutas de credenciales. El motor garantiza rollback automático y nunca se borran datos personales; no propongas borrados.'},{role:'user', content: $('Analizar Updater').first().json.prompt}] }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "draft",
+      "name": "Redactar informe Updater",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const a = $('Analizar Updater').first().json || {};\nconst l = $('LLM Updater').first().json || {};\nconst choices = l.choices || [];\nconst text = ((choices[0] && choices[0].message && choices[0].message.content) || '').trim();\nreturn [{json: {\n  employee: a.employee,\n  severity: a.severity,\n  quality_score: a.quality_score,\n  summary: (text || a.summary || 'Sin hallazgos').slice(0, 2500),\n  findings: a.findings || [],\n  evidence: a.evidence || '',\n  directive: a.directive || '',\n  task_id: a.task_id || null,\n  round_id: a.round_id || null\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "report",
+      "name": "Rendir cuentas Updater",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://corp-tools-api:8006/api/ledger/report",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Redactar informe Updater').first().json) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "resp",
+      "name": "Respuesta Updater",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r = $('Rendir cuentas Updater').first().json || {};\nconst d = $('Redactar informe Updater').first().json || {};\nreturn [{json: {...d, report_id: r.report_id || null, ledger_ok: !!r.ok}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "reply",
+      "name": "Responder Updater",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Respuesta Updater').first().json) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Updater": {
+      "main": [
+        [
+          {
+            "node": "Preparar Updater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tools Updater": {
+      "main": [
+        [
+          {
+            "node": "Historial Updater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analizar Updater": {
+      "main": [
+        [
+          {
+            "node": "LLM Updater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Updater": {
+      "main": [
+        [
+          {
+            "node": "Redactar informe Updater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redactar informe Updater": {
+      "main": [
+        [
+          {
+            "node": "Rendir cuentas Updater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rendir cuentas Updater": {
+      "main": [
+        [
+          {
+            "node": "Respuesta Updater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta Updater": {
+      "main": [
+        [
+          {
+            "node": "Responder Updater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder Updater": {
+      "main": [
+        []
+      ]
+    },
+    "Preparar Updater": {
+      "main": [
+        [
+          {
+            "node": "Tools Updater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Historial Updater": {
+      "main": [
+        [
+          {
+            "node": "Analizar Updater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": false
+  },
+  "pinData": {},
+  "active": true,
+  "id": "CAwdTeJYEeYLYyO8"
+}

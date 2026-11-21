@@ -267,6 +267,10 @@ function aiMenuKeyboard() {
       { text: '🔄 Reiniciar Servicio', callback_data: 'menu:restart' },
       { text: '🧹 Limpiar Memoria IA', callback_data: 'menu:clear' },
     ],
+    [
+      { text: '🏢 HomeLab Corp', callback_data: 'corp:report' },
+      { text: '🚀 Propuestas IA', callback_data: 'corp:proposals' },
+    ],
   ];
 }
 
@@ -298,13 +302,42 @@ function restartConfirmKeyboard(service) {
   ];
 }
 
+function corpKeyboard() {
+  return [
+    [
+      { text: '📊 Rendición de cuentas', callback_data: 'corp:report' },
+      { text: '🚀 Propuestas IA', callback_data: 'corp:proposals' },
+    ],
+    [
+      { text: '🩺 Ronda del Director', callback_data: 'corp:director' },
+      { text: '⬅️ Menú IA', callback_data: 'menu:back' },
+    ],
+  ];
+}
+
+function corpProposalKeyboard(proposals) {
+  const rows = (proposals || [])
+    .filter((item) => item.status === 'pending')
+    .slice(0, 6)
+    .map((item) => [
+      {
+        text: `🚀 Aplicar mejora #${item.id}`,
+        callback_data: `corp:apply:${item.id}`,
+      },
+    ]);
+  rows.push([{ text: '🔄 Actualizar lista', callback_data: 'corp:proposals' }]);
+  rows.push([{ text: '⬅️ HomeLab Corp', callback_data: 'corp:report' }]);
+  return rows;
+}
+
 function helpText() {
   return [
     '🕹️ <b>CONSOLA DE MANDO — OPTIPLEX BRAIN</b>',
     '━━━━━━━━━━━━━━━━━━━━',
     '/menu — menú táctil con IA (2 columnas)',
     '/status — resumen del clúster por Gemini AI',
-    '/audit — auditoría Sentinel AI con 13 sondas',
+    '/audit — auditoría Sentinel AI con 15 sondas',
+    '/corp — HomeLab Corp: 8 empleados, backups y propuestas',
     '/security — Pi-hole, DNSSEC y CrowdSec',
     '/media — descargas, colas y actividad reciente',
     '/clear — borrar memoria conversacional de la IA',
@@ -342,6 +375,8 @@ module.exports = {
   aiMenuView,
   restartServiceKeyboard,
   restartConfirmKeyboard,
+  corpKeyboard,
+  corpProposalKeyboard,
   node2View,
   backKeyboard,
   helpText,

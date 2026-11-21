@@ -4,6 +4,7 @@ Todas las consultas son de solo lectura salvo `manage_container`, que NUNCA
 reinicia directamente: devuelve una petición de confirmación que el bot
 presenta con botones inline antes de ejecutar la acción.
 """
+import html
 import os
 import struct
 
@@ -18,6 +19,7 @@ CORP_LEDGER_URL = os.environ.get(
     "CORP_LEDGER_URL", "http://192.168.1.4:8006/api/ledger/summary"
 ).rstrip("/")
 CORP_TOKEN = os.environ.get("CORP_INTERNAL_TOKEN", "")
+CORP_API_URL = os.environ.get("CORP_API_URL", "http://192.168.1.4:8006").rstrip("/")
 
 # Lista blanca explícita solicitada. El bot aplica la misma lista.
 ALLOWED_SERVICES = (
@@ -340,75 +342,161 @@ def get_media_activity():
     return _ok("\n".join(lines) if lines else "Sin actividad disponible.", data)
 
 
+def _esc(value):
+    return html.escape(str(value or ""), quote=False)
+
+
+def _corp_headers():
+    return {"X-Corp-Token": CORP_TOKEN} if CORP_TOKEN else {}
+
+
+def _corp_extras():
+    """Historial de backup/updates y propuestas pendientes de Agent-Architect."""
+    result = {"backups": [], "updates": [], "proposals": []}
+    for key, path in (
+        ("backups", "/api/tools/backup/history"),
+        ("updates", "/api/tools/updater/history"),
+        ("proposals", "/api/ledger/proposals"),
+    ):
+        try:
+            with httpx.Client(timeout=15, follow_redirects=True) as client:
+                response = client.get(CORP_API_URL + path, headers=_corp_headers())
+                if response.status_code < 400:
+                    body = response.json()
+                    result[key] = body.get(key) or []
+        except Exception:  # noqa: BLE001
+            continue
+    return result
+
+
 def consult_homelab_director(directive):
     """Envía una directiva al HomeLab-Director y muestra la rendición de cuentas.
 
-    Las cinco IAs empleadas solo hacen diagnóstico, auditoría y reportes. Esta
+    El Director coordina a 8 empleados (7 operativos + Agent-QA). Esta
     herramienta NUNCA reinicia contenedores ni borra datos.
     """
     directive = str(directive or "").strip()
     if not directive:
-        directive = "Entrega un reporte de rendición de cuentas de los 5 empleados"
+        directive = "Entrega un reporte de rendición de cuentas de los 8 empleados"
     try:
-        with httpx.Client(timeout=150, follow_redirects=True) as client:
+        with httpx.Client(timeout=240, follow_redirects=True) as client:
             launched = client.post(
                 CORP_DIRECTOR_URL,
                 json={"directive": directive, "requested_by": "telegram"},
             )
             if launched.status_code >= 400:
                 return _err(f"Director respondió HTTP {launched.status_code}")
-            ledger = client.get(
-                CORP_LEDGER_URL,
-                headers={"X-Corp-Token": CORP_TOKEN} if CORP_TOKEN else {},
-            )
+            report = launched.json() if "json" in launched.headers.get("content-type", "") else {}
+            ledger = client.get(CORP_LEDGER_URL, headers=_corp_headers())
             ledger.raise_for_status()
             payload = ledger.json()
     except Exception as exc:  # noqa: BLE001
         return _err(str(exc))
 
     employees = payload.get("employees") or []
+    extras = _corp_extras()
     lines = [f"Directiva enviada al HomeLab-Director: «{directive}»."]
+    narrative = str(report.get("report") or "").strip()
+    if narrative:
+        lines.append(narrative[:2200])
+    lines.append("Empleados (8):")
     for item in employees:
         lines.append(
             f"• {item.get('employee')}: {item.get('reports', 0)} informes, "
             f"calidad media {item.get('avg_quality', 'n/d')}, "
             f"último estado {item.get('last_severity') or 'sin datos'}."
         )
+    if extras["backups"]:
+        last = extras["backups"][0]
+        lines.append(
+            f"Último respaldo: {last.get('name')} · integridad {last.get('integrity')} · "
+            f"{last.get('bytes_total')} bytes."
+        )
+    if extras["updates"]:
+        last = extras["updates"][0]
+        lines.append(
+            f"Última actualización: {last.get('service')} · rollback "
+            f"{'sí' if last.get('rolled_back') else 'no'} · ok {last.get('ok')}."
+        )
+    pending = [p for p in extras["proposals"] if p.get("status") == "pending"]
+    if pending:
+        lines.append(f"Propuestas de Agent-Architect pendientes: {len(pending)}.")
     tasks = payload.get("recent_tasks") or []
     if tasks:
         lines.append(f"Última orden: #{tasks[0].get('id')} · {tasks[0].get('status')}.")
     return _ok("\n".join(lines), {
         "launched": launched.status_code,
+        "director_report": narrative,
+        "round_id": report.get("round_id"),
         "employees": employees,
         "recent_tasks": tasks[:3],
         "recent_reports": (payload.get("recent_reports") or [])[:5],
+        **extras,
     })
 
 
 def get_corp_accountability():
-    """Libro de rendición de cuentas de los 5 empleados (solo lectura)."""
+    """Libro de rendición de cuentas de los 8 empleados + autonomía (solo lectura)."""
     try:
         with httpx.Client(timeout=15, follow_redirects=True) as client:
-            response = client.get(
-                CORP_LEDGER_URL,
-                headers={"X-Corp-Token": CORP_TOKEN} if CORP_TOKEN else {},
-            )
+            response = client.get(CORP_LEDGER_URL, headers=_corp_headers())
             response.raise_for_status()
             payload = response.json()
     except Exception as exc:  # noqa: BLE001
         return _err(str(exc))
     employees = payload.get("employees") or []
-    lines = ["📊 <b>HomeLab Corp — rendición de cuentas</b>"]
+    extras = _corp_extras()
+    lines = ["📊 <b>HomeLab Corp — rendición de cuentas (8 empleados)</b>"]
     for item in employees:
         lines.append(
             f"• {item.get('employee')}: {item.get('reports', 0)} informes · "
             f"calidad {item.get('avg_quality', 'n/d')} · "
             f"último {item.get('last_severity') or 'sin datos'}"
         )
+    if extras["backups"]:
+        last = extras["backups"][0]
+        lines.append(
+            f"💾 Último respaldo: <b>{_esc(last.get('name'))}</b> · "
+            f"{last.get('integrity')} · {last.get('bytes_total')} bytes"
+        )
+    if extras["updates"]:
+        last = extras["updates"][0]
+        lines.append(
+            f"🔄 Última actualización: <b>{_esc(last.get('service'))}</b> · "
+            f"rollback {'sí' if last.get('rolled_back') else 'no'}"
+        )
+    pending = [p for p in extras["proposals"] if p.get("status") == "pending"]
+    if pending:
+        lines.append(f"🚀 Propuestas pendientes de Agent-Architect: {len(pending)}")
+        for proposal in pending[:3]:
+            lines.append(f"   #{proposal.get('id')} · {_esc(proposal.get('title'))}")
     tasks = payload.get("recent_tasks") or []
     if tasks:
         lines.append(f"Órdenes recientes: {len(tasks)} · última #{tasks[0].get('id')}.")
-    return _ok("\n".join(lines), payload)
+    return _ok("\n".join(lines), {**payload, **extras})
+
+
+def apply_corp_proposal(proposal_id):
+    """Aplica una propuesta aprobada por el usuario (nunca borra datos)."""
+    try:
+        proposal_id = int(proposal_id)
+    except (TypeError, ValueError):
+        return _err("ID de propuesta inválido")
+    try:
+        with httpx.Client(timeout=90, follow_redirects=True) as client:
+            response = client.post(
+                f"{CORP_API_URL}/api/ledger/proposal/{proposal_id}/apply",
+                headers=_corp_headers(),
+            )
+            if response.status_code >= 400:
+                return _err(f"API respondió HTTP {response.status_code}: {response.text[:200]}")
+            body = response.json()
+    except Exception as exc:  # noqa: BLE001
+        return _err(str(exc))
+    return _ok(
+        f"🚀 Propuesta <b>#{proposal_id}</b> aplicada: {_esc(body.get('status') or body.get('result') or 'ok')}.",
+        body,
+    )
 
 
 DISPATCH = {
@@ -416,6 +504,7 @@ DISPATCH = {
         kwargs.get("directive", "")
     ),
     "get_corp_accountability": lambda **_: get_corp_accountability(),
+    "apply_corp_proposal": lambda proposal_id: apply_corp_proposal(proposal_id),
     "get_cluster_status": lambda **_: get_cluster_status(),
     "run_sentinel_audit": lambda **_: run_sentinel_audit(),
     "manage_container": lambda service_name, action: manage_container(service_name, action),

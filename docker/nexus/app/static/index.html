@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#050507">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Nexus">
+  <title>HomeLab Nexus</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="icon" href="/icon-192.png" type="image/png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+
+  <!-- LOGIN -->
+  <section id="login-view" class="login-view hidden">
+    <div class="login-card glass">
+      <div class="login-brand">
+        <div class="brand-mark">N</div>
+        <div>
+          <h1>HomeLab Nexus</h1>
+          <p>Centro de mando · Bóveda cifrada</p>
+        </div>
+      </div>
+      <form id="login-form" class="login-form" autocomplete="on" method="post" action="/api/login">
+        <label class="field">
+          <span>Usuario</span>
+          <input id="login-user" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="angel" required>
+        </label>
+        <label class="field">
+          <span>Contraseña maestra</span>
+          <input id="login-pass" name="password" type="password" autocomplete="current-password" placeholder="••••••••••••••••" required>
+        </label>
+        <div id="login-error" class="form-error" aria-live="polite"></div>
+        <button type="submit" class="btn btn-primary btn-block" id="login-btn">Entrar</button>
+      </form>
+      <div class="login-foot">Acceso protegido · Cookie HttpOnly · SQLite cifrado</div>
+    </div>
+  </section>
+
+  <!-- APP -->
+  <div id="app-view" class="app-shell hidden">
+    <aside class="sidebar glass">
+      <div class="sidebar-brand">
+        <div class="brand-mark small">N</div>
+        <div class="sidebar-brand-text">
+          <strong>Nexus</strong>
+          <span>HomeLab</span>
+        </div>
+      </div>
+      <nav class="side-nav">
+        <button class="nav-btn active" data-tab="services">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          <span>Servicios</span>
+        </button>
+        <button class="nav-btn" data-tab="actions">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2L4.5 13H11l-1 9 9.5-11H13z"/></svg>
+          <span>Acciones</span>
+        </button>
+        <button class="nav-btn" data-tab="notes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5A2.5 2.5 0 016.5 3H20v18H6.5A2.5 2.5 0 014 18.5v-13z"/><path d="M4 18.5A2.5 2.5 0 016.5 16H20"/></svg>
+          <span>Bitácora</span>
+        </button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="net-pill" id="net-pill-side">
+          <span class="net-dot"></span>
+          <span id="net-label-side">LAN</span>
+        </div>
+        <button class="ghost-btn" id="logout-btn-side" title="Cerrar sesión">Salir</button>
+      </div>
+    </aside>
+
+    <main class="main-pane">
+      <header class="topbar glass">
+        <div class="topbar-left">
+          <div class="mobile-brand">
+            <div class="brand-mark small">N</div>
+            <span>Nexus</span>
+          </div>
+          <div class="search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input id="global-search" type="search" placeholder="Buscar servicios, IPs, usuarios, notas..." autocomplete="off" spellcheck="false">
+            <kbd class="kbd">⌘K</kbd>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <button id="network-toggle" class="network-toggle" type="button" aria-label="Cambiar red">
+            <span class="net-opt" data-net="lan">🏠 <span class="net-text">Red Casa LAN</span></span>
+            <span class="net-opt" data-net="vpn">🛡️ <span class="net-text">Remoto Tailscale</span></span>
+            <span class="net-slider"></span>
+          </button>
+          <button id="refresh-status" class="icon-btn" title="Actualizar estado" aria-label="Actualizar estado">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 12a8 8 0 10-2.34 5.66"/><path d="M20 4v6h-6"/></svg>
+          </button>
+          <button id="logout-btn" class="icon-btn hide-mobile" title="Cerrar sesión" aria-label="Cerrar sesión">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- SERVICES TAB -->
+      <section id="tab-services" class="tab-panel active">
+        <div class="section-head">
+          <div>
+            <h2>Servicios &amp; Logins</h2>
+            <p class="muted">Favoritos, accesos rápidos y bóveda cifrada del HomeLab.</p>
+          </div>
+          <button id="add-item-btn" class="btn btn-primary"><span class="plus">+</span> Añadir Servicio / Credencial</button>
+        </div>
+        <div class="filters" id="category-filters"></div>
+        <div id="favorites-block" class="fav-block hidden">
+          <div class="subhead"><span class="star">★</span> Favoritos</div>
+          <div id="favorites-grid" class="cards-grid"></div>
+        </div>
+        <div class="subhead" id="all-services-head">Todos los servicios</div>
+        <div id="services-grid" class="cards-grid"></div>
+        <div id="services-empty" class="empty-state hidden">No hay servicios que coincidan con la búsqueda.</div>
+      </section>
+
+      <!-- ACTIONS TAB -->
+      <section id="tab-actions" class="tab-panel">
+        <div class="section-head">
+          <div>
+            <h2>Acciones &amp; Comandos</h2>
+            <p class="muted">Disparadores seguros y comandos listos para copiar en 1 toque.</p>
+          </div>
+        </div>
+        <div class="quick-actions">
+          <button class="action-card glass action-runbook" data-runbook-title="Auditar Clúster (Sentinel)">
+            <div class="action-icon">🛡️</div>
+            <div class="action-body">
+              <strong>Auditar Clúster</strong>
+              <span>Dispara auditoría inmediata en Sentinel</span>
+            </div>
+            <div class="action-go">Ejecutar</div>
+          </button>
+          <button class="action-card glass action-runbook" data-runbook-title="Convocar Director IA (n8n)">
+            <div class="action-icon">🧠</div>
+            <div class="action-body">
+              <strong>Convocar Director IA</strong>
+              <span>Dispara webhook del Director en n8n</span>
+            </div>
+            <div class="action-go">Ejecutar</div>
+          </button>
+        </div>
+        <div id="runbook-feedback" class="runbook-feedback hidden" aria-live="polite"></div>
+        <div class="subhead">Comandos y runbooks</div>
+        <div id="runbooks-grid" class="runbooks-grid"></div>
+      </section>
+
+      <!-- NOTES TAB -->
+      <section id="tab-notes" class="tab-panel">
+        <div class="section-head">
+          <div>
+            <h2>Bitácora &amp; Notas</h2>
+            <p class="muted">Apuntes técnicos persistentes en SQLite.</p>
+          </div>
+          <button id="add-note-btn" class="btn btn-primary"><span class="plus">+</span> Nueva nota</button>
+        </div>
+        <div id="notes-grid" class="notes-grid"></div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav glass">
+      <button class="bottom-nav-btn active" data-tab="services"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>Servicios</span></button>
+      <button class="bottom-nav-btn" data-tab="actions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2L4.5 13H11l-1 9 9.5-11H13z"/></svg><span>Acciones</span></button>
+      <button class="bottom-nav-btn" data-tab="notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5A2.5 2.5 0 016.5 3H20v18H6.5A2.5 2.5 0 014 18.5v-13z"/><path d="M4 18.5A2.5 2.5 0 016.5 16H20"/></svg><span>Bitácora</span></button>
+    </nav>
+  </div>
+
+  <!-- MODAL -->
+  <div id="modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-head">
+        <h3 id="modal-title">Elemento</h3>
+        <button id="modal-close" class="icon-btn" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6l-12 12"/></svg></button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

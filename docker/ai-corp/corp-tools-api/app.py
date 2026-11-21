@@ -42,10 +42,13 @@ EMPLOYEES = (
     "Agent-SecOps",
     "Agent-Media",
     "Agent-Cloud",
+    "Agent-Updater",
+    "Agent-Backup",
+    "Agent-Architect",
     "Agent-QA",
 )
 
-app = FastAPI(title="HomeLab Corp Tools", version="1.0.0")
+app = FastAPI(title="HomeLab Corp Tools", version="2.0.0")
 
 
 # --------------------------------------------------------------------------- #
@@ -165,17 +168,22 @@ def _sentinel_probes() -> dict:
 
 
 def _docker_ps() -> list[dict]:
+    """Consulta Docker por el socket UNIX (la imagen no incluye el CLI docker)."""
     try:
-        result = subprocess.run(
-            ["docker", "ps", "--format", "{{.Names}}|{{.Status}}"],
-            capture_output=True, text=True, timeout=6, check=False,
-        )
-        if result.returncode != 0:
-            return [{"error": (result.stderr or "docker ps falló").strip()[:300]}]
+        with httpx.Client(
+            transport=httpx.HTTPTransport(uds=os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")),
+            base_url="http://docker", timeout=8,
+        ) as client:
+            response = client.get("/containers/json", params={"all": 1})
+        if response.status_code >= 400:
+            return [{"error": f"Docker API HTTP {response.status_code}"}]
         return [
-            {"name": parts[0], "status": parts[1] if len(parts) > 1 else "?"}
-            for line in result.stdout.splitlines()
-            if (parts := line.split("|", 1))
+            {
+                "name": (item.get("Names") or ["?"])[0].lstrip("/"),
+                "status": item.get("Status") or item.get("State") or "?",
+            }
+            for item in response.json()
+            if isinstance(item, dict)
         ]
     except Exception as exc:  # noqa: BLE001
         return [{"error": str(exc)}]
@@ -523,24 +531,49 @@ async def tools_cloud(x_corp_token: str = Header(default="")) -> dict:
 @app.get("/api/tools/qa", dependencies=[])
 async def tools_qa(x_corp_token: str = Header(default="")) -> dict:
     _require_token(x_corp_token)
-    audit = _http_json(f"{SENTINEL}/api/audit", timeout=90, method="POST", json_body={})
-    envelope = audit.get("body") if isinstance(audit.get("body"), dict) else {}
-    body = envelope.get("audit") if isinstance(envelope.get("audit"), dict) else envelope
+    # Usamos el estado en caché de Sentinel en vez de POST /api/audit: ese audit
+    # vuelve a llamar a /health de este mismo servicio y, con un único worker,
+    # produce un timeout circular (QA -> Sentinel -> corp-tools QA -> ...).
+    state = _http_json(f"{SENTINEL}/api/state", timeout=20, method="GET")
+    envelope = state.get("body") if isinstance(state.get("body"), dict) else {}
+    body = envelope if isinstance(envelope, dict) else {}
     probes = body.get("probes") or {}
     anomalies = body.get("anomalies") or []
     statused = {k: v.get("status") for k, v in probes.items()
                 if isinstance(v, dict) and v.get("status")}
+    def _probe_ok(value) -> bool:
+        if not isinstance(value, dict):
+            return False
+        if value.get("status"):
+            return value["status"] == "ok"
+        if "ok" in value:
+            return value.get("ok") is True
+        if "issues" in value:
+            return not value.get("issues")
+        return True
+    degraded = [k for k, v in probes.items() if not _probe_ok(v)]
     with closing(_connect()) as conn:
         recent = _rows_to_list(conn.execute(
             "SELECT id, employee, severity, quality_score, summary FROM employee_reports "
             "ORDER BY id DESC LIMIT 20").fetchall())
     return {
-        "ok": audit.get("ok", False),
-        "audit_ok": body.get("ok"),
+        "ok": state.get("ok", False),
+        "audit_ok": state.get("ok", False),
+        "source": "sentinel_state_cache",
         "probes_total": len(probes),
-        "probes_ok": sum(1 for v in statused.values() if v == "ok"),
+        "probes_ok": sum(1 for v in probes.values() if _probe_ok(v)),
         "probes_status": statused,
+        "probes_degraded": degraded,
         "anomalies_count": len(anomalies),
         "anomalies": anomalies[:12],
         "recent_reports": recent,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Motores autónomos (Fase 1): autocuración, updater, backup 3-2-1 y architect.
+# Se importa al final para reutilizar el helpers ya definidos sin ciclos.
+# --------------------------------------------------------------------------- #
+from autonomy import router as autonomy_router  # noqa: E402
+
+app.include_router(autonomy_router)

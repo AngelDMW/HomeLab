@@ -1,0 +1,355 @@
+{
+  "name": "HomeLab Corp — Empleado Agent-Backup",
+  "nodes": [
+    {
+      "id": "wh",
+      "name": "Webhook Backup",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent-backup",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "88888888-8888-4888-8888-888888888888"
+    },
+    {
+      "id": "prep",
+      "name": "Preparar Backup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const _wh = $('Webhook Backup').first().json || {};\nconst d = _wh.body || _wh;\nconst directive = String(d.directive || '');\nconst run = d.run_backup === true || /respaldo|backup|copia de seguridad/i.test(directive);\nreturn [{json: {\n  dry_run: !run,\n  directive,\n  task_id: d.task_id || null,\n  round_id: d.round_id || null,\n  requested_by: d.requested_by || 'director'\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "tools",
+      "name": "Tools Backup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://corp-tools-api:8006/api/tools/backup",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 180000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ dry_run: $('Preparar Backup').first().json.dry_run, requested_by: 'agent-backup' }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "hist",
+      "name": "Historial Backup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://corp-tools-api:8006/api/tools/backup/history",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 120000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "analyze",
+      "name": "Analizar Backup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const _wh = $('Webhook Backup').first().json || {};\nconst d = _wh.body || _wh;\nconst p = $('Preparar Backup').first().json || {};\nconst t = $('Tools Backup').first().json || {};\nconst h = $('Historial Backup').first().json || {};\nconst last = (h.backups || [])[0] || {};\nconst findings = [];\nif (t.ok === false) findings.push({level:'CRIT', text:'Falló la creación del respaldo: ' + String(t.error || '').slice(0,200)});\nif ((t.missing || []).length) findings.push({level:'CRIT', text:'Artefactos faltantes: ' + t.missing.join(', ')});\nif (last.ok === 1) findings.push({level:'OK', text:'Último respaldo verificado ' + last.name + ' (' + last.bytes_total + ' bytes)'});\nif (!findings.length) findings.push({level:'OK', text:p.dry_run ? 'Modo seco: sin escritura; plan 3-2-1 listo para la ronda nocturna' : 'Respaldoverificado con integridad'});\nconst severity = findings.some(f => f.level === 'CRIT') ? 'CRIT' : 'OK';\nconst evidence = JSON.stringify({dry_run:p.dry_run, result:t, history:(h.backups||[]).slice(0,8)}).slice(0,4500);\nconst prompt = `Eres Agent-Backup, responsable del respaldo 3-2-1 de HomeLab Corp.\nTu jefe es HomeLab-Director. Informa en 3 a 5 líneas en español: destino, artefactos\nverificados, integridad, retención de 7 días y último respaldo real. Nunca includes\nrutas de credenciales ni propongas borrar datos personales. No inventes resultados.\n\nMODO: ${p.dry_run ? 'SECO (sin cambios)' : 'RESPALDO REAL'}\nEVIDENCIA:\n${evidence}\n\nHALLAZGOS:\n${JSON.stringify(findings)}\n`;\nreturn [{json: {\n  employee:'Agent-Backup', severity, quality_score:0.9, findings, evidence, prompt,\n  directive:d.directive || p.directive || '', task_id:d.task_id || p.task_id || null,\n  round_id:d.round_id || p.round_id || null, tool_data:t\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "llm",
+      "name": "LLM Backup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENROUTER_API_KEY }}"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "http://192.168.1.4:5678"
+            },
+            {
+              "name": "X-Title",
+              "value": "HomeLab Corp"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENROUTER_MODEL || 'google/gemini-2.5-flash', temperature: 0.25, max_tokens: 450, messages: [{role:'system', content:'Responde siempre en español. Sé preciso, breve y accionable. Usa solo texto plano, sin Markdown. No inventes datos y nunca menciones claves, tokens ni rutas de credenciales. El motor garantiza rollback automático y nunca se borran datos personales; no propongas borrados.'},{role:'user', content: $('Analizar Backup').first().json.prompt}] }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "draft",
+      "name": "Redactar informe Backup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const a = $('Analizar Backup').first().json || {};\nconst l = $('LLM Backup').first().json || {};\nconst choices = l.choices || [];\nconst text = ((choices[0] && choices[0].message && choices[0].message.content) || '').trim();\nreturn [{json: {\n  employee: a.employee,\n  severity: a.severity,\n  quality_score: a.quality_score,\n  summary: (text || a.summary || 'Sin hallazgos').slice(0, 2500),\n  findings: a.findings || [],\n  evidence: a.evidence || '',\n  directive: a.directive || '',\n  task_id: a.task_id || null,\n  round_id: a.round_id || null\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "report",
+      "name": "Rendir cuentas Backup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://corp-tools-api:8006/api/ledger/report",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Redactar informe Backup').first().json) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "resp",
+      "name": "Respuesta Backup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r = $('Rendir cuentas Backup').first().json || {};\nconst d = $('Redactar informe Backup').first().json || {};\nreturn [{json: {...d, report_id: r.report_id || null, ledger_ok: !!r.ok}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "reply",
+      "name": "Responder Backup",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Respuesta Backup').first().json) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Backup": {
+      "main": [
+        [
+          {
+            "node": "Preparar Backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tools Backup": {
+      "main": [
+        [
+          {
+            "node": "Historial Backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analizar Backup": {
+      "main": [
+        [
+          {
+            "node": "LLM Backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Backup": {
+      "main": [
+        [
+          {
+            "node": "Redactar informe Backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redactar informe Backup": {
+      "main": [
+        [
+          {
+            "node": "Rendir cuentas Backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rendir cuentas Backup": {
+      "main": [
+        [
+          {
+            "node": "Respuesta Backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta Backup": {
+      "main": [
+        [
+          {
+            "node": "Responder Backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder Backup": {
+      "main": [
+        []
+      ]
+    },
+    "Preparar Backup": {
+      "main": [
+        [
+          {
+            "node": "Tools Backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Historial Backup": {
+      "main": [
+        [
+          {
+            "node": "Analizar Backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": false
+  },
+  "pinData": {},
+  "active": true,
+  "id": "Qd6dZ3t5dNv9AMvB"
+}

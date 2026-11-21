@@ -66,6 +66,11 @@ module.exports = {
   sentinel: {
     url: env.SENTINEL_URL || 'http://127.0.0.1:9090',
   },
+  corp: {
+    apiUrl: env.CORP_API_URL || 'http://192.168.1.4:8006',
+    directorUrl: env.CORP_DIRECTOR_URL || 'http://192.168.1.4:5678/webhook/director',
+    token: env.CORP_INTERNAL_TOKEN || '',
+  },
   ownerName: env.OWNER_NAME || 'Angel',
   selfName: 'optiplex-chatops',
   timezone,

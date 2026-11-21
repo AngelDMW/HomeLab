@@ -28,6 +28,7 @@ _TG_SERVICE_MAP = {
     'Unbound DNSSEC': 'unbound', 'unbound': 'unbound',
     'CrowdSec IPS': 'crowdsec', 'crowdsec': 'crowdsec',
     'homelab-sentinel': 'homelab-sentinel', 'Sentinel': 'homelab-sentinel',
+    'HomeLab Nexus': 'homelab-nexus', 'homelab_nexus': 'homelab-nexus',
     'seerr-theme': 'seerr-theme', 'jellyseerr': 'jellyseerr',
     'radarr': 'radarr', 'sonarr': 'sonarr', 'bazarr': 'bazarr',
     'qbittorrent': 'qbittorrent',
@@ -36,7 +37,7 @@ _TG_SERVICE_MAP = {
 _TG_ALLOWED = {
     'jellyfin', 'jellyseerr', 'seerr-theme', 'qbittorrent', 'radarr', 'sonarr',
     'bazarr', 'nextcloud', 'immich-server', 'immich-microservices', 'pihole',
-    'unbound', 'crowdsec', 'threadfin', 'homelab-sentinel',
+    'unbound', 'crowdsec', 'threadfin', 'homelab-sentinel', 'homelab-nexus',
 }
 
 
@@ -88,6 +89,10 @@ def analyze(probes, twin):
         st = p.get('status')
         if st in ('down','error'):
             anomalies.append({'component':p.get('name',key),'severity':'critical','summary':f"{p.get('name',key)} no responde ({p.get('endpoint') or p.get('port')})",'tier':2,'action':'restart_container','params':{'container': key if key!='pihole' else 'pihole'},'details':{'error':p.get('error'),'status':st}})
+    # HomeLab Nexus: panel de servicios en :8888 (vigilancia L7)
+    nexus = probes.get('homelab_nexus') or {}
+    if nexus.get('status') in ('down', 'error'):
+        anomalies.append({'component':'HomeLab Nexus','severity':'critical','summary':'HomeLab Nexus (:8888/health) no responde; panel y API de servicios caídos','tier':2,'action':'restart_container','params':{'container':'homelab-nexus'},'details':{'error':nexus.get('error'),'status':nexus.get('status')}})
     # Unbound: resolución recursiva + validación DNSSEC
     ub = probes.get('unbound_dnssec') or {}
     ub_st = ub.get('status')

@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir \
       httpx==0.28.1
 
 COPY app.py /app/app.py
+COPY autonomy.py /app/autonomy.py
 
 RUN useradd --create-home --uid 1000 corp \
  && mkdir -p /app/data \

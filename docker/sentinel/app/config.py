@@ -18,6 +18,9 @@ class Settings:
     ntfy_topic: str = _get('NTFY_TOPIC', '').strip()
     ntfy_server: str = _get('NTFY_SERVER', 'https://ntfy.sh').rstrip('/')
     action_secret: str = _get('SENTINEL_ACTION_SECRET', 'change-me')
+    # Token compartido únicamente con corp-tools-api (Nodo 2) para las acciones
+    # operativas seguras de HomeLab Corp. Nunca se versiona ni se expone en la UI.
+    corp_token: str = _get('CORP_ACTION_TOKEN', '')
     threadfin_logs_dir: str = _get('THREADFIN_LOGS_DIR', '/threadfin_logs')
     threadfin_base: str = _get('THREADFIN_BASE', '/homelab/docker/threadfin')
     hostfs: str = _get('HOSTFS', '/hostfs')

@@ -10,16 +10,20 @@ services:
       - CORP_LEDGER_DB=/app/data/corp_ledger.sqlite3
       - CORP_BIND_HOST=0.0.0.0
       - CORP_BIND_PORT=8006
+      - N8N_WORKFLOWS_SRC=/workflows-src
     ports:
       - "8006:8006"
     volumes:
       - /mnt/storage/homelab-offload/ai-corp/ledger:/app/data
-      - /mnt/storage/homelab-offload:/mnt/storage/homelab-offload:ro
+      - /mnt/storage/homelab-offload:/mnt/storage/homelab-offload
+      - ./workflows:/workflows-src:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - corp_net
     mem_limit: 256m
     cpus: 0.35
+    group_add:
+      - "996"
     logging:
       driver: json-file
       options:

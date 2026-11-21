@@ -48,7 +48,7 @@ def _service_param():
 FUNCTIONS = [
     {
         "name": "get_cluster_status",
-        "description": "Estado en tiempo real: CPU/RAM/disco, contenedores y las 13 sondas de Sentinel AI.",
+        "description": "Estado en tiempo real: CPU/RAM/disco, contenedores y las 15 sondas de Sentinel AI.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
@@ -83,7 +83,7 @@ FUNCTIONS = [
     },
     {
         "name": "consult_homelab_director",
-        "description": "Envía una directiva al HomeLab-Director (n8n) y devuelve la rendición de cuentas de los 5 empleados. Solo diagnóstico y reportes.",
+        "description": "Envía una directiva al HomeLab-Director (n8n) y devuelve el reporte ejecutivo de los 8 empleados (7 operativos + QA), además del historial de backups, actualizaciones y propuestas. Solo diagnóstico y reportes.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -97,8 +97,19 @@ FUNCTIONS = [
     },
     {
         "name": "get_corp_accountability",
-        "description": "Libro de rendición de cuentas: historial, severidad y puntaje de calidad de los 5 empleados.",
+        "description": "Libro de rendición de cuentas de los 8 empleados: severidad, calidad, respaldos verificados, actualizaciones con rollback y propuestas pendientes del Agent-Architect.",
         "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "apply_corp_proposal",
+        "description": "Aplica una propuesta de mejora de Agent-Architect previamente aprobada por el usuario. No borra datos.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "proposal_id": {"type": "integer", "description": "ID de la propuesta a aplicar"},
+            },
+            "required": ["proposal_id"],
+        },
     },
 ]
 

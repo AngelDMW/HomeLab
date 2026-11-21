@@ -346,7 +346,10 @@ def check_containers_and_logs():
                             'connect() failed (111: connection refused)' in l.lower()))
             patterns = []
             for pat in ['OOM', 'Out of memory', 'FATAL', 'I/O error', 'Input/output error', 'connection refused', 'Connection refused']:
-                if pat.lower() in log_text.lower():
+                # 'OOM' como substring coincide con 'TooManyRequests' (HTTP 429),
+                # asi que se exige palabra completa para OOM/FATAL.
+                rx = r'\bOOM\b' if pat == 'OOM' else (r'\bFATAL\b' if pat == 'FATAL' else re.escape(pat))
+                if re.search(rx, log_text, re.I | re.M):
                     patterns.append(pat)
             if patterns:
                 # de-dup
@@ -533,6 +536,29 @@ def probe_node2_ai_corp():
     }
 
 
+def probe_homelab_nexus():
+    """Sonda L7 de HomeLab Nexus (panel de servicios, puerto 8888 en Nodo 1)."""
+    r = _http_get('http://192.168.1.3:8888/health', max_text=800)
+    body = {}
+    try:
+        if r.get('text'):
+            body = json.loads(r['text'])
+    except Exception:
+        pass
+    ok = bool(r.get('ok') and body.get('ok') is True
+              and body.get('service') == 'homelab-nexus')
+    return {
+        'name': 'HomeLab Nexus',
+        'port': 8888,
+        'endpoint': '/health',
+        'ok': ok,
+        'status': 'ok' if ok else 'down',
+        'details': {k: body.get(k) for k in ('ok', 'service') if k in body},
+        'latency_ms': r.get('latency_ms'),
+        'error': r.get('error'),
+    }
+
+
 def run_all_probes():
     results = {}
     for key, fn in [
@@ -543,6 +569,7 @@ def run_all_probes():
         ('nextcloud', probe_nextcloud),
         ('immich', probe_immich),
         ('jellyfin', probe_jellyfin),
+        ('homelab_nexus', probe_homelab_nexus),
         ('node2_portainer', probe_node2_portainer),
         ('node2_immich_ml', probe_node2_immich_ml),
         ('node2_ai_corp', probe_node2_ai_corp),

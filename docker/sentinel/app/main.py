@@ -11,6 +11,7 @@ from .twin_engine import collect_twin
 from .probes import run_all_probes
 from .ai_brain import analyze, diagnose, answer_question
 from .healer import try_tier1, request_tier2, verify_sig, approve_pending, ignore_pending
+from .corp_api import router as corp_router
 from .twin_engine import send_wol, get_node2_mac
 
 STATE = {'twin': None, 'probes': None, 'anomalies': [], 'last_cycle': None, 'last_audit': None}
@@ -106,6 +107,7 @@ async def lifespan(app: FastAPI):
         pass
 
 app = FastAPI(title='HomeLab Sentinel AI', lifespan=lifespan)
+app.include_router(corp_router)
 app.mount('/static', StaticFiles(directory='app/static'), name='static')
 templates = Jinja2Templates(directory='app/templates')
 

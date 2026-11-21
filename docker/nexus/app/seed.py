@@ -1,0 +1,405 @@
+from .crypto import encrypt_text
+from .db import _utcnow, db
+
+
+VAULT_SEED = [
+    # IA & Control
+    {
+        "name": "Sentinel Mission Control",
+        "category": "IA & Control",
+        "icon": "🛡️",
+        "lan_url": "http://192.168.1.3:9090",
+        "vpn_url": "http://100.98.35.64:9090",
+        "health_url": "http://192.168.1.3:9090/health",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "Mission Control / auditoría del clúster. Puerto 9090 en Nodo 1.",
+        "is_favorite": 1,
+    },
+    {
+        "name": "n8n AI Corp",
+        "category": "IA & Control",
+        "icon": "🧠",
+        "lan_url": "http://192.168.1.4:5678",
+        "vpn_url": "http://100.67.30.11:5678",
+        "health_url": "http://192.168.1.4:5678/healthz",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "n8n Director / AI Corp en Nodo 2. Webhook director: /webhook/director.",
+        "is_favorite": 1,
+    },
+    {
+        "name": "Bot Telegram @ServerDMW_bot",
+        "category": "IA & Control",
+        "icon": "🤖",
+        "lan_url": "https://t.me/ServerDMW_bot",
+        "vpn_url": "https://t.me/ServerDMW_bot",
+        "health_url": "",
+        "username": "@ServerDMW_bot",
+        "password": "Configurar en bóveda",
+        "notes": "Optiplex Brain / ChatOps. Consola Telegram para estado, cola, nodo 2 y briefing.",
+        "is_favorite": 1,
+    },
+    # Multimedia
+    {
+        "name": "HomeFlix (Seerr)",
+        "category": "Multimedia",
+        "icon": "🎬",
+        "lan_url": "http://192.168.1.3:5055",
+        "vpn_url": "http://100.98.35.64:5055",
+        "health_url": "http://192.168.1.3:5055/api/v1/status",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "Seerr / Jellyseerr con tema HomeFlix. Solicitudes multimedia.",
+        "is_favorite": 1,
+    },
+    {
+        "name": "Jellyfin",
+        "category": "Multimedia",
+        "icon": "📺",
+        "lan_url": "http://192.168.1.3:8096",
+        "vpn_url": "http://100.98.35.64:8096",
+        "health_url": "http://192.168.1.3:8096/health",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "Servidor multimedia principal. Network mode host, QSV activo.",
+        "is_favorite": 1,
+    },
+    {
+        "name": "Threadfin TV",
+        "category": "Multimedia",
+        "icon": "📡",
+        "lan_url": "http://192.168.1.3:34400",
+        "vpn_url": "http://100.98.35.64:34400",
+        "health_url": "http://192.168.1.3:34400",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "TV en vivo / M3U proxy para Android TV. Puerto 34400.",
+        "is_favorite": 0,
+    },
+    {
+        "name": "qBittorrent",
+        "category": "Multimedia",
+        "icon": "⬇️",
+        "lan_url": "http://192.168.1.3:8081",
+        "vpn_url": "http://100.98.35.64:8081",
+        "health_url": "http://192.168.1.3:8081",
+        "username": "admin",
+        "password": "Configurar en bóveda",
+        "notes": "WebUI en puerto 8081 (puerto configurado). Torrents en 6881.",
+        "is_favorite": 0,
+    },
+    {
+        "name": "Radarr",
+        "category": "Multimedia",
+        "icon": "🎞️",
+        "lan_url": "http://192.168.1.3:7878",
+        "vpn_url": "http://100.98.35.64:7878",
+        "health_url": "http://192.168.1.3:7878/ping",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "Gestión de películas. Perfiles de idioma ES-LAT/DUAL configurados.",
+        "is_favorite": 0,
+    },
+    {
+        "name": "Sonarr",
+        "category": "Multimedia",
+        "icon": "📼",
+        "lan_url": "http://192.168.1.3:8989",
+        "vpn_url": "http://100.98.35.64:8989",
+        "health_url": "http://192.168.1.3:8989/ping",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "Gestión de series. Perfiles de idioma ES-LAT/DUAL configurados.",
+        "is_favorite": 0,
+    },
+    {
+        "name": "Bazarr",
+        "category": "Multimedia",
+        "icon": "💬",
+        "lan_url": "http://192.168.1.3:6767",
+        "vpn_url": "http://100.98.35.64:6767",
+        "health_url": "http://192.168.1.3:6767",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "Subtítulos automáticos (español latino/español/forzados).",
+        "is_favorite": 0,
+    },
+    # Nube & Fotos
+    {
+        "name": "Nextcloud",
+        "category": "Nube & Fotos",
+        "icon": "☁️",
+        "lan_url": "http://192.168.1.3:8080",
+        "vpn_url": "http://100.98.35.64:8080",
+        "health_url": "http://192.168.1.3:8080/status.php",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "Nube personal y archivos. Volumen nextcloud_nextcloud_data crítico (~119 GB).",
+        "is_favorite": 1,
+    },
+    {
+        "name": "Immich Fotos",
+        "category": "Nube & Fotos",
+        "icon": "🖼️",
+        "lan_url": "http://192.168.1.3:2283",
+        "vpn_url": "http://100.98.35.64:2283",
+        "health_url": "http://192.168.1.3:2283/api/server/ping",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "Fotos y videos. ML delegado a Nodo 2 (192.168.1.4:3003). External Library Nextcloud RO.",
+        "is_favorite": 1,
+    },
+    # Red & Seguridad
+    {
+        "name": "Pi-hole DNS",
+        "category": "Red & Seguridad",
+        "icon": "🕳️",
+        "lan_url": "http://192.168.1.3/admin",
+        "vpn_url": "http://100.98.35.64/admin",
+        "health_url": "http://192.168.1.3/admin/",
+        "username": "admin",
+        "password": "Configurar en bóveda",
+        "notes": "DNS/ad-blocking. Web admin en /admin; upstream Unbound con DNSSEC.",
+        "is_favorite": 0,
+    },
+    {
+        "name": "Portainer Nodo 1",
+        "category": "Red & Seguridad",
+        "icon": "🐳",
+        "lan_url": "https://192.168.1.3:9443",
+        "vpn_url": "https://100.98.35.64:9443",
+        "health_url": "https://192.168.1.3:9443/api/system/status",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "Gestión Docker Nodo 1. HTTPS 9443; puede usar certificado self-signed.",
+        "is_favorite": 0,
+    },
+    {
+        "name": "Portainer Nodo 2",
+        "category": "Red & Seguridad",
+        "icon": "🐳",
+        "lan_url": "http://192.168.1.4:9000",
+        "vpn_url": "http://100.67.30.11:9000",
+        "health_url": "http://192.168.1.4:9000/api/system/status",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "Gestión Docker Nodo 2. Disponible solo cuando el Nodo 2 está encendido.",
+        "is_favorite": 0,
+    },
+    {
+        "name": "Router Principal Wind",
+        "category": "Red & Seguridad",
+        "icon": "📶",
+        "lan_url": "http://192.168.1.1:65080",
+        "vpn_url": "",
+        "health_url": "http://192.168.1.1:65080",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "ZTE F6201B. Admin solo por puerto 65080 en LAN. No accesible por Tailscale directo.",
+        "is_favorite": 0,
+    },
+    {
+        "name": "Router AP Huawei",
+        "category": "Red & Seguridad",
+        "icon": "📡",
+        "lan_url": "http://192.168.1.254",
+        "vpn_url": "",
+        "health_url": "http://192.168.1.254",
+        "username": "",
+        "password": "Configurar en bóveda",
+        "notes": "Nexxt Amp300 / AP 2.4 GHz en 192.168.1.254. Solo LAN.",
+        "is_favorite": 0,
+    },
+    # Infraestructura & SSH
+    {
+        "name": "SSH Nodo 1",
+        "category": "Infraestructura & SSH",
+        "icon": "🖥️",
+        "lan_url": "ssh://mrdavid@192.168.1.3",
+        "vpn_url": "ssh://mrdavid@100.98.35.64",
+        "health_url": "tcp://192.168.1.3:22",
+        "username": "mrdavid",
+        "password": "Configurar en bóveda",
+        "notes": "Nodo principal HomeLab. Alias SSH: homelab. Ruta: /home/mrdavid/HomeLab.",
+        "is_favorite": 0,
+    },
+    {
+        "name": "SSH Nodo 2",
+        "category": "Infraestructura & SSH",
+        "icon": "🧩",
+        "lan_url": "ssh://mrdavid@192.168.1.4",
+        "vpn_url": "ssh://mrdavid@100.67.30.11",
+        "health_url": "tcp://192.168.1.4:22",
+        "username": "mrdavid",
+        "password": "Configurar en bóveda",
+        "notes": "Nodo secundario. Alias SSH: homelab-node2. Puede estar apagado; usar WoL antes.",
+        "is_favorite": 0,
+    },
+]
+
+
+RUNBOOK_SEED = [
+    {
+        "title": "Auditar Clúster (Sentinel)",
+        "description": "Dispara una auditoría inmediata en Sentinel Mission Control.",
+        "command": "curl -X POST http://192.168.1.3:9090/api/audit",
+        "action_type": "http",
+        "action_url": "http://192.168.1.3:9090/api/audit",
+        "action_method": "POST",
+        "action_payload": "{}",
+        "category": "Acciones",
+        "sort_order": 1,
+    },
+    {
+        "title": "Convocar Director IA (n8n)",
+        "description": "Dispara el webhook del Director en n8n AI Corp.",
+        "command": "curl -X POST http://192.168.1.4:5678/webhook/director -H 'Content-Type: application/json' -d '{\"source\":\"nexus\"}'",
+        "action_type": "http",
+        "action_url": "http://192.168.1.4:5678/webhook/director",
+        "action_method": "POST",
+        "action_payload": '{"source":"nexus","message":"Estado del clúster"}',
+        "category": "Acciones",
+        "sort_order": 2,
+    },
+    {
+        "title": "SSH Nodo 1 (LAN)",
+        "description": "Conexión SSH al Nodo 1 por red local.",
+        "command": "ssh mrdavid@192.168.1.3",
+        "action_type": "copy",
+        "category": "SSH",
+        "sort_order": 10,
+    },
+    {
+        "title": "SSH Nodo 1 (Tailscale)",
+        "description": "Conexión SSH al Nodo 1 por Tailscale.",
+        "command": "ssh mrdavid@100.98.35.64",
+        "action_type": "copy",
+        "category": "SSH",
+        "sort_order": 11,
+    },
+    {
+        "title": "SSH Nodo 2 (LAN)",
+        "description": "Conexión SSH al Nodo 2 por red local.",
+        "command": "ssh mrdavid@192.168.1.4",
+        "action_type": "copy",
+        "category": "SSH",
+        "sort_order": 12,
+    },
+    {
+        "title": "SSH Nodo 2 (Tailscale)",
+        "description": "Conexión SSH al Nodo 2 por Tailscale.",
+        "command": "ssh mrdavid@100.67.30.11",
+        "action_type": "copy",
+        "category": "SSH",
+        "sort_order": 13,
+    },
+    {
+        "title": "Logs Nexus",
+        "description": "Ver logs recientes del contenedor Nexus.",
+        "command": "ssh homelab \"cd /home/mrdavid/HomeLab/docker/nexus && docker compose logs --tail=100 -f\"",
+        "action_type": "copy",
+        "category": "Logs",
+        "sort_order": 20,
+    },
+    {
+        "title": "Logs Sentinel",
+        "description": "Ver logs recientes de Sentinel.",
+        "command": "ssh homelab \"cd /home/mrdavid/HomeLab/docker/sentinel && docker compose logs --tail=100 -f\"",
+        "action_type": "copy",
+        "category": "Logs",
+        "sort_order": 21,
+    },
+    {
+        "title": "Estado contenedores Nodo 1",
+        "description": "Lista contenedores y su estado en Nodo 1.",
+        "command": "ssh homelab \"docker ps --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'\"",
+        "action_type": "copy",
+        "category": "Diagnóstico",
+        "sort_order": 30,
+    },
+    {
+        "title": "Estado contenedores Nodo 2",
+        "description": "Lista contenedores y su estado en Nodo 2.",
+        "command": "ssh homelab-node2 \"docker ps --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'\"",
+        "action_type": "copy",
+        "category": "Diagnóstico",
+        "sort_order": 31,
+    },
+    {
+        "title": "Reinicio seguro Nexus",
+        "description": "Reconstruye y levanta solo Nexus (sin tocar otros stacks).",
+        "command": "ssh homelab \"cd /home/mrdavid/HomeLab/docker/nexus && docker compose up -d --build\"",
+        "action_type": "copy",
+        "category": "Reinicios seguros",
+        "sort_order": 40,
+    },
+]
+
+
+def seed_if_empty() -> None:
+    now = _utcnow()
+    with db() as conn:
+        count = conn.execute("SELECT COUNT(*) AS c FROM vault_items").fetchone()["c"]
+        if count == 0:
+            for item in VAULT_SEED:
+                conn.execute(
+                    """
+                    INSERT INTO vault_items
+                    (name, category, icon, lan_url, vpn_url, health_url, username, encrypted_password, notes, is_favorite, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item["name"],
+                        item["category"],
+                        item["icon"],
+                        item.get("lan_url", ""),
+                        item.get("vpn_url", ""),
+                        item.get("health_url", ""),
+                        item.get("username", ""),
+                        encrypt_text(item.get("password", "Configurar en bóveda")),
+                        item.get("notes", ""),
+                        1 if item.get("is_favorite") else 0,
+                        now,
+                        now,
+                    ),
+                )
+
+        rb_count = conn.execute("SELECT COUNT(*) AS c FROM runbooks").fetchone()["c"]
+        if rb_count == 0:
+            for rb in RUNBOOK_SEED:
+                conn.execute(
+                    """
+                    INSERT INTO runbooks
+                    (title, description, command, action_type, action_url, action_method, action_payload, category, sort_order, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        rb["title"],
+                        rb.get("description", ""),
+                        rb.get("command", ""),
+                        rb.get("action_type", "copy"),
+                        rb.get("action_url", ""),
+                        rb.get("action_method", "POST"),
+                        rb.get("action_payload", ""),
+                        rb.get("category", "Acciones"),
+                        int(rb.get("sort_order", 0)),
+                        now,
+                        now,
+                    ),
+                )
+
+        note_count = conn.execute("SELECT COUNT(*) AS c FROM notes").fetchone()["c"]
+        if note_count == 0:
+            conn.execute(
+                """
+                INSERT INTO notes (title, content, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    "Bitácora HomeLab",
+                    "Usa esta bitácora para anotar cambios, incidencias, credenciales pendientes y decisiones de infraestructura.",
+                    now,
+                    now,
+                ),
+            )

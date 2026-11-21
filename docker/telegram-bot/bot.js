@@ -142,7 +142,7 @@ async function showAiMenu(messageId = null) {
       [
         '🤖 <b>HOMEFLIX AI — MENÚ PRINCIPAL</b>',
         '━━━━━━━━━━━━━━━━━━━━',
-        'Puedo consultar el clúster, auditar los 13 sensores de Sentinel, revisar seguridad y medios, o reiniciar servicios previa confirmación.',
+        'Puedo consultar el clúster, auditar los 15 sensores de Sentinel, coordinar HomeLab Corp (8 empleados), revisar seguridad y medios, o reiniciar servicios previa confirmación.',
         '',
         '<i>Memoria conversacional: últimos 12 turnos. Usa /clear para borrarla.</i>',
       ].join('\n'),
@@ -453,6 +453,141 @@ async function searchAlternativeFor(torrent) {
   return `⚠️ ${esc(result.message)}`;
 }
 
+async function corpRequest(path, options = {}) {
+  const response = await rawRequest(`${config.corp.apiUrl}${path}`, {
+    timeout: options.timeout || 30,
+    method: options.method || 'GET',
+    body: options.body || null,
+    headers: config.corp.token
+      ? { 'X-Corp-Token': config.corp.token }
+      : {},
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Corp API HTTP ${response.status}`);
+  }
+  return response.data && typeof response.data === 'object' ? response.data : {};
+}
+
+async function showCorpReport(messageId = null, directive = '') {
+  await renderPanel(messageId, {
+    text: '🏢 <b>HOMELAB CORP</b>\n━━━━━━━━━━━━━━━━━━━━\nConsultando a los 8 empleados y al Director…',
+    keyboard: ui.corpKeyboard(),
+  });
+  try {
+    const summary = await corpRequest('/api/ledger/summary');
+    const extras = {};
+    for (const [key, path] of [
+      ['backups', '/api/tools/backup/history'],
+      ['updates', '/api/tools/updater/history'],
+    ]) {
+      try {
+        const history = await corpRequest(path);
+        extras[key] = history[key] || [];
+      } catch (error) {
+        extras[key] = [];
+      }
+    }
+    const employees = summary.employees || [];
+    const lines = [
+      '🏢 <b>HOMELAB CORP — 8 EMPLEADOS</b>',
+      '━━━━━━━━━━━━━━━━━━━━',
+    ];
+    if (directive) {
+      try {
+        const round = await rawRequest(config.corp.directorUrl, {
+          method: 'POST',
+          timeout: 240,
+          body: { directive, requested_by: 'telegram' },
+        });
+        if (round.status === 200 && round.data) {
+          const report = String(round.data.report || '').trim();
+          lines.push(`<b>Ronda ${esc(round.data.round_id || '')}:</b>`);
+          lines.push(esc(report.slice(0, 1800)));
+          lines.push('');
+        }
+      } catch (error) {
+        lines.push(`⚠️ Director no disponible: ${esc(error.message)}`);
+        lines.push('');
+      }
+    }
+    for (const item of employees) {
+      lines.push(
+        `• <b>${esc(item.employee)}</b>: ${item.reports || 0} informes · ` +
+          `calidad ${esc(item.avg_quality || 'n/d')} · ${esc(item.last_severity || 'sin datos')}`,
+      );
+    }
+    if (extras.backups.length) {
+      const last = extras.backups[0];
+      lines.push('');
+      lines.push(
+        `💾 Último respaldo: <b>${esc(last.name || last.id || '?')}</b> · ` +
+          `${esc(last.integrity || 'n/d')} · ${esc(last.bytes_total || '?')} bytes`,
+      );
+    }
+    if (extras.updates.length) {
+      const last = extras.updates[0];
+      lines.push(
+        `🔄 Última actualización: <b>${esc(last.service || '?')}</b> · ` +
+          `rollback ${last.rolled_back ? 'sí' : 'no'} · ok ${last.ok}`,
+      );
+    }
+    const tasks = summary.recent_tasks || [];
+    if (tasks.length) {
+      lines.push(`📋 Órdenes recientes: ${tasks.length} · última #${tasks[0].id}.`);
+    }
+    await renderPanel(messageId, {
+      text: lines.join('\n'),
+      keyboard: ui.corpKeyboard(),
+    });
+  } catch (error) {
+    await renderPanel(messageId, {
+      text: `⚠️ No pude consultar HomeLab Corp: ${esc(error.message)}`,
+      keyboard: ui.corpKeyboard(),
+    });
+  }
+}
+
+async function showCorpProposals(messageId = null) {
+  try {
+    const body = await corpRequest('/api/ledger/proposals');
+    const proposals = (body.proposals || []).filter((item) => item.status === 'pending');
+    const lines = [
+      '🚀 <b>PROPUESTAS DE AGENT-ARCHITECT</b>',
+      '━━━━━━━━━━━━━━━━━━━━',
+      proposals.length
+        ? 'Selecciona una mejora para aplicarla tras tu aprobación explícita.'
+        : 'No hay propuestas pendientes en este momento.',
+    ];
+    for (const item of proposals.slice(0, 6)) {
+      lines.push(`• #${item.id} · ${esc(item.title || 'Mejora')} · ${esc(item.risk || 'riesgo n/d')}`);
+    }
+    await renderPanel(messageId, {
+      text: lines.join('\n'),
+      keyboard: ui.corpProposalKeyboard(proposals),
+    });
+  } catch (error) {
+    await renderPanel(messageId, {
+      text: `⚠️ No pude listar propuestas: ${esc(error.message)}`,
+      keyboard: ui.corpKeyboard(),
+    });
+  }
+}
+
+async function applyCorpProposal(id, messageId = null) {
+  try {
+    const body = await corpRequest(`/api/ledger/proposal/${id}/apply`, { method: 'POST', timeout: 90 });
+    await renderPanel(messageId, {
+      text: `✅ Propuesta <b>#${esc(id)}</b> aplicada: ${esc(body.status || body.result || 'ok')}`,
+      keyboard: ui.corpKeyboard(),
+    });
+  } catch (error) {
+    await renderPanel(messageId, {
+      text: `⚠️ No pude aplicar la propuesta #${esc(id)}: ${esc(error.message)}`,
+      keyboard: ui.corpProposalKeyboard([]),
+    });
+  }
+}
+
 async function openView(action, messageId) {
   switch (action) {
     case 'telemetry':
@@ -473,6 +608,10 @@ async function openView(action, messageId) {
       return showBriefing(messageId);
     case 'node2':
       return showNode2(messageId);
+    case 'corp':
+      return showCorpReport(messageId);
+    case 'corp_proposals':
+      return showCorpProposals(messageId);
     default:
       return showMain(messageId);
   }
@@ -481,7 +620,7 @@ async function openView(action, messageId) {
 const COMMANDS = [
   { command: 'menu', description: 'Menú táctil con IA (2 columnas)' },
   { command: 'status', description: 'Resumen del clúster por Gemini AI' },
-  { command: 'audit', description: 'Auditoría Sentinel AI (13 sondas)' },
+  { command: 'audit', description: 'Auditoría Sentinel AI (15 sondas)' },
   { command: 'security', description: 'Pi-hole, DNSSEC y CrowdSec' },
   { command: 'media', description: 'Descargas, colas y actividad' },
   { command: 'clear', description: 'Borrar memoria conversacional IA' },
@@ -560,14 +699,10 @@ async function handleCommand(text) {
       return showNode2();
     }
     case 'corp':
-      if (!argument) {
-        return sendAi(
-          'Muestra el libro de rendición de cuentas de HomeLab Corp: estado, severidad y puntaje de calidad de los 5 empleados.',
-        );
+      if (argument === 'propuestas' || argument === 'proposals') {
+        return showCorpProposals();
       }
-      return sendAi(
-        `Envía esta directiva al HomeLab-Director y entrega el resultado: ${argument}`,
-      );
+      return showCorpReport(null, argument);
     case 'help':
       return notify(ui.helpText());
     case 'selftest':
@@ -875,6 +1010,28 @@ async function onCallback(query) {
           await clearAiMemory();
         } else if (action === 'back') {
           await showAiMenu(messageId);
+        } else {
+          await ack(query, 'Acción desconocida');
+        }
+        break;
+      }
+
+      case 'corp': {
+        if (action === 'report') {
+          await ack(query);
+          await showCorpReport(messageId);
+        } else if (action === 'proposals') {
+          await ack(query);
+          await showCorpProposals(messageId);
+        } else if (action === 'director') {
+          await ack(query, 'Consultando al Director…');
+          await showCorpReport(
+            messageId,
+            'Ronda completa del Director con los 8 empleados; entrega reporte ejecutivo.',
+          );
+        } else if (action === 'apply') {
+          await ack(query, 'Aplicando mejora…');
+          await applyCorpProposal(argument, messageId);
         } else {
           await ack(query, 'Acción desconocida');
         }

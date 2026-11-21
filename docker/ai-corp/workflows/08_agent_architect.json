@@ -1,0 +1,330 @@
+{
+  "name": "HomeLab Corp — Empleado Agent-Architect",
+  "nodes": [
+    {
+      "id": "wh",
+      "name": "Webhook Architect",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent-architect",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "99999999-9999-4999-8999-999999999999"
+    },
+    {
+      "id": "tools",
+      "name": "Tools Architect",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://corp-tools-api:8006/api/tools/architect",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 180000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ requested_by: 'agent-architect' }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "proposals",
+      "name": "Propuestas Architect",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://corp-tools-api:8006/api/ledger/proposals",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 120000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "analyze",
+      "name": "Analizar Architect",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const _wh = $('Webhook Architect').first().json || {};\nconst d = _wh.body || _wh;\nconst t = $('Tools Architect').first().json || {};\nconst pr = $('Propuestas Architect').first().json || {};\nconst proposals = pr.proposals || [];\nconst findings = [];\nif ((t.anomalies || 0) > 0) findings.push({level:'WARN', text:t.anomalies + ' anomalías activas en Sentinel'});\nif ((t.new_proposals || []).length) findings.push({level:'OK', text:(t.new_proposals || []).length + ' propuestas nuevas generadas'});\nif (t.ssd_used_pct >= 88) findings.push({level:'WARN', text:'Disco Nodo 1 al ' + t.ssd_used_pct + '%'});\nif (!findings.length) findings.push({level:'OK', text:'Línea base estable; sin cambios recomendados'});\nconst severity = t.anomalies > 0 ? 'WARN' : 'OK';\nconst evidence = JSON.stringify({tool:t, proposals:proposals.slice(0,10)}).slice(0,4500);\nconst prompt = `Eres Agent-Architect, analista de evolución de HomeLab Corp.\nTu jefe es HomeLab-Director. Redacta en 3 a 5 líneas en español: tendencias de\ntelemetría, mantenimiento preventivo ejecutado y propuestas accionables pendientes.\nNo propongas acciones destructivas ni toques datos personales. No inventes datos.\n\nEVIDENCIA:\n${evidence}\n\nHALLAZGOS:\n${JSON.stringify(findings)}\n`;\nreturn [{json: {\n  employee:'Agent-Architect', severity, quality_score:0.9, findings, evidence, prompt,\n  directive:d.directive || '', task_id:d.task_id || null, round_id:d.round_id || null,\n  tool_data:t, proposals\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "llm",
+      "name": "LLM Architect",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENROUTER_API_KEY }}"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "http://192.168.1.4:5678"
+            },
+            {
+              "name": "X-Title",
+              "value": "HomeLab Corp"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENROUTER_MODEL || 'google/gemini-2.5-flash', temperature: 0.25, max_tokens: 450, messages: [{role:'system', content:'Responde siempre en español. Sé preciso, breve y accionable. Usa solo texto plano, sin Markdown. No inventes datos y nunca menciones claves, tokens ni rutas de credenciales. El motor garantiza rollback automático y nunca se borran datos personales; no propongas borrados.'},{role:'user', content: $('Analizar Architect').first().json.prompt}] }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "draft",
+      "name": "Redactar informe Architect",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const a = $('Analizar Architect').first().json || {};\nconst l = $('LLM Architect').first().json || {};\nconst choices = l.choices || [];\nconst text = ((choices[0] && choices[0].message && choices[0].message.content) || '').trim();\nreturn [{json: {\n  employee: a.employee,\n  severity: a.severity,\n  quality_score: a.quality_score,\n  summary: (text || a.summary || 'Sin hallazgos').slice(0, 2500),\n  findings: a.findings || [],\n  evidence: a.evidence || '',\n  directive: a.directive || '',\n  task_id: a.task_id || null,\n  round_id: a.round_id || null\n}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "report",
+      "name": "Rendir cuentas Architect",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://corp-tools-api:8006/api/ledger/report",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 60000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Redactar informe Architect').first().json) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "resp",
+      "name": "Respuesta Architect",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r = $('Rendir cuentas Architect').first().json || {};\nconst d = $('Redactar informe Architect').first().json || {};\nreturn [{json: {...d, report_id: r.report_id || null, ledger_ok: !!r.ok}}];",
+        "mode": "runOnceForAllItems"
+      }
+    },
+    {
+      "id": "reply",
+      "name": "Responder Architect",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Respuesta Architect').first().json) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Architect": {
+      "main": [
+        [
+          {
+            "node": "Tools Architect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tools Architect": {
+      "main": [
+        [
+          {
+            "node": "Propuestas Architect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analizar Architect": {
+      "main": [
+        [
+          {
+            "node": "LLM Architect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Architect": {
+      "main": [
+        [
+          {
+            "node": "Redactar informe Architect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redactar informe Architect": {
+      "main": [
+        [
+          {
+            "node": "Rendir cuentas Architect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rendir cuentas Architect": {
+      "main": [
+        [
+          {
+            "node": "Respuesta Architect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta Architect": {
+      "main": [
+        [
+          {
+            "node": "Responder Architect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder Architect": {
+      "main": [
+        []
+      ]
+    },
+    "Propuestas Architect": {
+      "main": [
+        [
+          {
+            "node": "Analizar Architect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": false
+  },
+  "pinData": {},
+  "active": true,
+  "id": "lZA9SZF92ThfF4mi"
+}

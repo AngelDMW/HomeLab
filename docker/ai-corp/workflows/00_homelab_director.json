@@ -69,7 +69,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ directive: $json.directive || 'Ejecuta una ronda inicial de inspección con los 5 empleados y entrega el primer reporte ejecutivo', employee: 'HomeLab-Director', requested_by: $json.requested_by || ($('Webhook Director').length ? 'telegram' : 'schedule') }) }}"
+        "jsonBody": "={{ JSON.stringify({ directive: $json.directive || 'Ejecuta una ronda inicial de inspección con los 8 empleados y entrega el primer reporte ejecutivo', employee: 'HomeLab-Director', requested_by: $json.requested_by || ($('Webhook Director').length ? 'telegram' : 'schedule') }) }}"
       },
       "onError": "continueRegularOutput"
     },
@@ -83,7 +83,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const task = $('Abrir tarea').first().json || {};\nconst hook = $('Webhook Director').length ? $('Webhook Director').first().json : {};\nconst directive = hook.directive || task.directive || 'Ejecuta una ronda inicial de inspección con los 5 empleados y entrega el primer reporte ejecutivo';\nreturn [{json:{\n  directive,\n  task_id: task.task_id || null,\n  round_id: 'CORP-' + new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14),\n  requested_by: hook.requested_by || ($('Webhook Director').length ? 'telegram' : 'schedule'),\n  source: $('Webhook Director').length ? 'webhook' : 'schedule'\n}}];",
+        "jsCode": "const task = $('Abrir tarea').first().json || {};\nconst hook = $('Webhook Director').length ? $('Webhook Director').first().json : {};\nconst directive = hook.directive || task.directive || 'Ejecuta una ronda inicial de inspección con los 8 empleados y entrega el primer reporte ejecutivo';\nreturn [{json:{\n  directive,\n  task_id: task.task_id || null,\n  round_id: 'CORP-' + new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14),\n  requested_by: hook.requested_by || ($('Webhook Director').length ? 'telegram' : 'schedule'),\n  source: $('Webhook Director').length ? 'webhook' : 'schedule'\n}}];",
         "mode": "runOnceForAllItems"
       }
     },
@@ -196,6 +196,87 @@
       "onError": "continueRegularOutput"
     },
     {
+      "id": "call_updater",
+      "name": "Agente Updater",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        560
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5678/webhook/agent-updater",
+        "sendHeaders": false,
+        "options": {
+          "timeout": 180000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Preparar directiva').first().json) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "call_backup",
+      "name": "Agente Backup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        760
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5678/webhook/agent-backup",
+        "sendHeaders": false,
+        "options": {
+          "timeout": 180000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Preparar directiva').first().json) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "call_architect",
+      "name": "Agente Architect",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        960
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5678/webhook/agent-architect",
+        "sendHeaders": false,
+        "options": {
+          "timeout": 180000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Preparar directiva').first().json) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
       "id": "merge4",
       "name": "Consolidar entregas",
       "type": "n8n-nodes-base.code",
@@ -205,7 +286,7 @@
         200
       ],
       "parameters": {
-        "jsCode": "const labels = ['Infra','SecOps','Media','Cloud'];\nconst reports = labels.map(label => {\n  const items = $items('Agente ' + label);\n  if (items.length) return items[0].json;\n  return {employee:'Agent-'+label, severity:'CRIT', quality_score:0,\n          summary:'Sin respuesta del sub-workflow', findings:[], report_id:null};\n});\nconst p = $('Preparar directiva').first().json || {};\nconst prompt = `Eres HomeLab-Director. Recibiste cuatro entregas de tus empleados.\nPrepara el contexto para Agent-QA, que auditará la calidad y la auditoría de Sentinel.\nNo escribas aún el reporte ejecutivo.\n\nDIRECTIVA: ${p.directive}\nRONDA: ${p.round_id}\nENTREGAS:\n${JSON.stringify(reports.map(r=>({employee:r.employee, severity:r.severity, summary:r.summary,\n  findings:r.findings, report_id:r.report_id, evidence:(r.evidence||'').slice(0,1200)})))}\n`;\nreturn [{json:{reports, directive:p.directive, task_id:p.task_id,\n  round_id:p.round_id, source:p.source, prompt}}];",
+        "jsCode": "const labels = ['Infra','SecOps','Media','Cloud','Updater','Backup','Architect'];\nconst reports = labels.map(label => {\n  const items = $items('Agente ' + label);\n  if (items.length) return items[0].json;\n  return {employee:'Agent-'+label, severity:'CRIT', quality_score:0,\n          summary:'Sin respuesta del sub-workflow', findings:[], report_id:null};\n});\nconst p = $('Preparar directiva').first().json || {};\nconst prompt = `Eres HomeLab-Director. Recibiste siete entregas de tus empleados.\nPrepara el contexto para Agent-QA, que auditará la calidad y la auditoría de Sentinel.\nNo escribas aún el reporte ejecutivo.\n\nDIRECTIVA: ${p.directive}\nRONDA: ${p.round_id}\nENTREGAS:\n${JSON.stringify(reports.map(r=>({employee:r.employee, severity:r.severity, summary:r.summary,\n  findings:r.findings, report_id:r.report_id, evidence:(r.evidence||'').slice(0,1200)})))}\n`;\nreturn [{json:{reports, directive:p.directive, task_id:p.task_id,\n  round_id:p.round_id, source:p.source, prompt}}];",
         "mode": "runOnceForAllItems"
       }
     },
@@ -246,7 +327,7 @@
         200
       ],
       "parameters": {
-        "jsCode": "const base = $('Consolidar entregas').first().json || {};\nconst qa = $('Agente QA').first().json || {};\nconst reports = [...(base.reports || []), {\n  employee:'Agent-QA', severity:qa.severity || 'WARN',\n  quality_score:qa.quality_score || 0, summary:qa.summary || 'Sin dictamen',\n  findings:qa.findings || [], report_id:qa.report_id || null\n}];\nconst scores = (qa.assessments || []).map(a => ({\n  report_id:a.report_id, quality_score:a.quality_score, reason:a.reason\n})).filter(s => s.report_id);\nconst prompt = `Eres HomeLab-Director de HomeLab Corp, una organización de 5 IAs\nempleadas. Redacta el REPORTE EJECUTIVO CONSOLIDADO para @ServerDMW_bot en español,\nen 8 a 12 líneas de texto plano, con:\n1) estado general del clúster, 2) un bloque por cada empleado con su hallazgo principal,\n3) anomalías/riesgos detectados por QA, 4) próximos pasos seguros de solo lectura.\nSé concreto y usa los datos reales. No inventes nada. No propongas reinicios ni borrados.\nNo incluyas claves, tokens ni rutas de credenciales.\n\nDIRECTIVA RECIBIDA: ${base.directive}\nRONDA: ${base.round_id}\nINFORMES:\n${JSON.stringify(reports.map(r=>({employee:r.employee, severity:r.severity,\n  quality_score:r.quality_score, summary:r.summary, findings:r.findings})))}\n\nPUNTAJES QA:\n${JSON.stringify(scores)}\n`;\nreturn [{json:{reports, scores, directive:base.directive, task_id:base.task_id,\n  round_id:base.round_id, source:base.source, qa, prompt}}];",
+        "jsCode": "const base = $('Consolidar entregas').first().json || {};\nconst qa = $('Agente QA').first().json || {};\nconst reports = [...(base.reports || []), {\n  employee:'Agent-QA', severity:qa.severity || 'WARN',\n  quality_score:qa.quality_score || 0, summary:qa.summary || 'Sin dictamen',\n  findings:qa.findings || [], report_id:qa.report_id || null\n}];\nconst scores = (qa.assessments || []).map(a => ({\n  report_id:a.report_id, quality_score:a.quality_score, reason:a.reason\n})).filter(s => s.report_id);\nconst prompt = `Eres HomeLab-Director de HomeLab Corp, una organización de 8 IAs\nempleadas. Redacta el REPORTE EJECUTIVO CONSOLIDADO para @ServerDMW_bot en español,\nen 8 a 12 líneas de texto plano, con:\n1) estado general del clúster, 2) un bloque por cada empleado con su hallazgo principal,\n3) anomalías/riesgos detectados por QA, 4) próximos pasos seguros de solo lectura.\nSé concreto y usa los datos reales. No inventes nada. No propongas reinicios ni borrados.\nNo incluyas claves, tokens ni rutas de credenciales.\n\nDIRECTIVA RECIBIDA: ${base.directive}\nRONDA: ${base.round_id}\nINFORMES:\n${JSON.stringify(reports.map(r=>({employee:r.employee, severity:r.severity,\n  quality_score:r.quality_score, summary:r.summary, findings:r.findings})))}\n\nPUNTAJES QA:\n${JSON.stringify(scores)}\n`;\nreturn [{json:{reports, scores, directive:base.directive, task_id:base.task_id,\n  round_id:base.round_id, source:base.source, qa, prompt}}];",
         "mode": "runOnceForAllItems"
       }
     },
@@ -307,7 +388,7 @@
         200
       ],
       "parameters": {
-        "jsCode": "const c = $('Consolidar final').first().json || {};\nconst l = $('LLM Director').first().json || {};\nconst choice = (l.choices || [])[0];\nlet text = ((choice && choice.message && choice.message.content) || '').trim();\nif (!text) {\n  const lines = (c.reports || []).map(r =>\n    '• ' + r.employee + ' [' + r.severity + '] ' + (r.summary || '').slice(0,220));\n  text = ['Estado general: consolidación completada con datos de Sentinel y los 5 empleados.',\n    ...lines, 'Próximos pasos: mantener vigilancia de solo lectura y auditar en la próxima ronda.'].join('\\n');\n}\nconst header = '🏢 HomeLab Corp · Reporte ejecutivo\\nRonda ' + (c.round_id || 'n/a') + '\\n\\n';\nreturn [{json:{text:(header + text).slice(0,3800), round_id:c.round_id,\n  task_id:c.task_id, scores:c.scores || []}}];",
+        "jsCode": "const c = $('Consolidar final').first().json || {};\nconst l = $('LLM Director').first().json || {};\nconst choice = (l.choices || [])[0];\nlet text = ((choice && choice.message && choice.message.content) || '').trim();\nif (!text) {\n  const lines = (c.reports || []).map(r =>\n    '• ' + r.employee + ' [' + r.severity + '] ' + (r.summary || '').slice(0,220));\n  text = ['Estado general: consolidación completada con datos de Sentinel y los 8 empleados.',\n    ...lines, 'Próximos pasos: mantener vigilancia de solo lectura y auditar en la próxima ronda.'].join('\\n');\n}\nconst header = '🏢 HomeLab Corp · Reporte ejecutivo\\nRonda ' + (c.round_id || 'n/a') + '\\n\\n';\nreturn [{json:{text:(header + text).slice(0,3800), round_id:c.round_id,\n  task_id:c.task_id, scores:c.scores || []}}];",
         "mode": "runOnceForAllItems"
       }
     },
@@ -506,7 +587,7 @@
       "main": [
         [
           {
-            "node": "Consolidar entregas",
+            "node": "Agente Updater",
             "type": "main",
             "index": 0
           }
@@ -605,6 +686,39 @@
       "main": [
         []
       ]
+    },
+    "Agente Updater": {
+      "main": [
+        [
+          {
+            "node": "Agente Backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente Backup": {
+      "main": [
+        [
+          {
+            "node": "Agente Architect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente Architect": {
+      "main": [
+        [
+          {
+            "node": "Consolidar entregas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
@@ -612,5 +726,6 @@
     "saveManualExecutions": false
   },
   "pinData": {},
-  "active": true
+  "active": true,
+  "id": "ZFfk9dnJ4cHMQI7N"
 }

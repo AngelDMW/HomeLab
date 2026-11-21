@@ -1,6 +1,6 @@
 {
   "name": "optiplex-chatops",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "description": "Optiplex Brain - agente autónomo de telemetría, autorreparación y ChatOps",
   "main": "bot.js",
   "scripts": {

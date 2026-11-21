@@ -37,6 +37,20 @@ function escapeHtml(text) {
     .replace(/>/g, '&gt;');
 }
 
+// Último recurso si Telegram rechaza entidades HTML generadas por la IA.
+function htmlToPlain(text) {
+  return String(text == null ? '' : text)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|pre)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
 function cleanTitle(name) {
   return String(name || '')
     .replace(/^\[[^\]]+\]\s*/, '')
@@ -88,6 +102,7 @@ module.exports = {
   formatDuration,
   progressBar,
   escapeHtml,
+  htmlToPlain,
   cleanTitle,
   lookupTitle,
   detectLanguage,

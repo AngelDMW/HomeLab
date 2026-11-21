@@ -269,3 +269,25 @@ Config files added: `/etc/sysctl.d/99-homelab-tuning.conf` (N1), `/etc/sysctl.d/
 **Findings corrected:** Docker logs 57 MB → **3 MB** (largest were `nextcloud` 34 MB and `immich-server` 14 MB); build cache reclaimed **420.7 MB**; transient `immich-postgres` recovery-mode FATAL and `seerr-theme` 502s traced to restarts and resolved; Bazarr `subf2m`/`addic7ed` throttling (missing User-Agent/credentials) and empty `/media/peliculas` logged as informational, not changed (no data touched). `portainer` remains an unmanaged, externally-created container (no Compose labels): its 1.7 MB log has no rotation until a future managed recreate; the empty `portainer_default` network created by the failed `up` was removed.
 
 **Verified final state:** Sentinel `POST /api/audit` → `ok:true`, **13/13 probes OK, 0 anomalies** (`threadfin`, `pihole`, `unbound_dnssec`, `crowdsec_ips`, `nextcloud`, `immich`, `jellyfin`, `node2_portainer`, `node2_immich_ml`, `node2_metrics`, `containers_logs`, `disk`, `nfs_node2_storage`). DNSSEC `sigfail`→`SERVFAIL` / `sigok`→`NOERROR`; CrowdSec bouncer active with 0 decisions and the private-subnet whitelist intact; `/dev/sda1` 86% (32 GB free, below the 92% alert); Nodo 2 RAM 24.4%; no OOMKilled and no restart loops; all official healthchecks healthy.
+
+
+## Telegram Bot 3.0 — Gemini AI ChatOps (2026-11-20)
+
+`optiplex-chatops` is now an AI-native ChatOps agent (v3.0.0). The Node.js front end keeps the autonomous telemetry/self-healing engines and delegates conversation to a local Python brain (`docker/telegram-bot/ai_brain/`) running in the **same container** on `127.0.0.1:5057` under a minimal `start.sh` supervisor (72 MB RAM total).
+
+| Capability | Implementation | Verification |
+| --- | --- | --- |
+| Conversational engine | Gemini 2.5 Flash via `google-genai`; automatic fallback to `OPENROUTER_API_KEY` (same Gemini model) when the direct `GEMINI_API_KEY` is rejected | `/ask` returns real data; selftest `AI Brain 12/12` |
+| Function calling | 5 real tools dispatched by the Python brain, with up to 4 reasoning rounds | `/audit`, `/security`, `/media`, `/status` answered from live tool data |
+| Short-term memory | SQLite `/app/data/ai_memory.sqlite`, last **12 turns per chat** (24 rows), WAL | verified 12 messages after >6 exchanges |
+| Voice notes | Telegram `.ogg` downloaded in memory, sent as `input_audio`/Whisper transcript, temp buffer discarded immediately | `/voice` 200 with real audio + tool execution |
+| Strict access | `ALLOWED_CHAT_IDS` built from `CHAT_ID`; messages and callbacks require matching **chat and sender**; brain rejects foreign chat IDs with HTTP 403 | `authorized=true`, `unauthorized=false`, HTTP 403 |
+| Safe formatting | Telegram `parse_mode=HTML` with automatic plain-text fallback on `can't parse entities` | all AI answers rendered without parse errors |
+| Resilient polling | IPv4-first DNS plus controlled polling restart after 5 consecutive failures | no polling errors after rebuild |
+| Sentinel bridge | `modules/sentinelBridge.js` polls `/api/state` every 5 min and forwards new anomalies with inline actions | `POST /api/audit` → ok, 13/13 probes, 0 anomalies |
+
+**AI tools:** `get_cluster_status()` (Nodo 1/Nodo 2 CPU, RAM, `/dev/sda1`, `/mnt/node2-storage`, containers, 13 Sentinel probes), `run_sentinel_audit()` (POST `/api/audit`), `manage_container(service_name, action)` (`logs`/`health`/`restart`; restart only returns `require_confirmation=true`, never executed by the model), `get_security_report()` (Pi-hole, Unbound DNSSEC, CrowdSec) and `get_media_activity()` (qBittorrent, Radarr, Sonarr, Jellyfin). Service whitelist: jellyfin, jellyseerr, seerr-theme, qbittorrent, radarr, sonarr, bazarr, nextcloud, immich-server, immich-microservices, pihole, unbound, crowdsec, threadfin, homelab-sentinel.
+
+**Commands:** `/menu` (2-column inline keyboard), `/status`, `/audit`, `/security`, `/media`, `/clear`, plus the original `/mission`, `/telemetry`, `/containers`, `/queue`, `/buscar`, `/briefing`, `/iptv`, `/disk`, `/maint`, `/node2`, `/selftest`, `/help`. Restart callbacks (`ai:restart_menu:*` → `ai:restart_yes:*` / `ai:restart_cancel:*`) always ask for confirmation. Sentinel anomalies carry `telegram_actions` with `🩺 Diagnosticar con IA` and `🔄 Reiniciar contenedor` buttons.
+
+Pre-change snapshot: `/home/mrdavid/backups-compose/20261120_telegram_ai_upgrade_pre/` (bot + Sentinel). Secrets, SQLite memory and `__pycache__` remain Git-ignored; only source files were committed.

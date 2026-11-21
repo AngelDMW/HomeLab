@@ -6,16 +6,22 @@ ENV NODE_ENV=production
 ENV TZ=America/Santo_Domingo
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssh-client \
+    && apt-get install -y --no-install-recommends openssh-client python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json ./
 RUN npm install --omit=dev
 
-COPY config.js bot.js ./
+COPY ai_brain ./ai_brain
+RUN pip3 install --no-cache-dir --break-system-packages google-genai httpx
+
+COPY config.js bot.js start.sh ./
 COPY lib ./lib
 COPY modules ./modules
 
-RUN mkdir -p /app/data /app/ssh
+RUN mkdir -p /app/data /app/ssh && chmod +x /app/start.sh
 
-CMD ["node", "--dns-result-order=ipv4first", "bot.js"]
+ENV AI_BRAIN_PORT=5057
+ENV PYTHONUNBUFFERED=1
+
+CMD ["./start.sh"]

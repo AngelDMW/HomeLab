@@ -253,12 +253,62 @@ function node2View(status) {
   };
 }
 
+function aiMenuKeyboard() {
+  return [
+    [
+      { text: '📊 Estado Clúster', callback_data: 'menu:status' },
+      { text: '🩺 Auditoría IA', callback_data: 'menu:audit' },
+    ],
+    [
+      { text: '🛡️ Seguridad DNS/IPS', callback_data: 'menu:security' },
+      { text: '🎬 Media & Descargas', callback_data: 'menu:media' },
+    ],
+    [
+      { text: '🔄 Reiniciar Servicio', callback_data: 'menu:restart' },
+      { text: '🧹 Limpiar Memoria IA', callback_data: 'menu:clear' },
+    ],
+  ];
+}
+
+function aiMenuView(text) {
+  return { text, keyboard: aiMenuKeyboard() };
+}
+
+function restartServiceKeyboard(services) {
+  const rows = [];
+  const list = services.slice(0, 20);
+  for (let index = 0; index < list.length; index += 2) {
+    rows.push(
+      list.slice(index, index + 2).map((service) => ({
+        text: `🔄 ${service}`,
+        callback_data: `ai:restart_menu:${service}`,
+      })),
+    );
+  }
+  rows.push([{ text: '⬅️ Menú IA', callback_data: 'menu:back' }]);
+  return rows;
+}
+
+function restartConfirmKeyboard(service) {
+  return [
+    [
+      { text: '✅ Confirmar reinicio', callback_data: `ai:restart_yes:${service}` },
+      { text: '❌ Cancelar', callback_data: `ai:restart_cancel:${service}` },
+    ],
+  ];
+}
+
 function helpText() {
   return [
     '🕹️ <b>CONSOLA DE MANDO — OPTIPLEX BRAIN</b>',
     '━━━━━━━━━━━━━━━━━━━━',
-    '/mission · /status — panel principal',
-    '/telemetry — CPU, RAM, disco, red y sensores',
+    '/menu — menú táctil con IA (2 columnas)',
+    '/status — resumen del clúster por Gemini AI',
+    '/audit — auditoría Sentinel AI con 13 sondas',
+    '/security — Pi-hole, DNSSEC y CrowdSec',
+    '/media — descargas, colas y actividad reciente',
+    '/clear — borrar memoria conversacional de la IA',
+    '/mission · /telemetry — panel principal y telemetría',
     '/containers — estado y reinicio con un toque',
     '/queue — descargas qBittorrent y solicitudes Seerr',
     '/buscar &lt;título&gt; — buscar y solicitar una película en Seerr',
@@ -288,6 +338,10 @@ module.exports = {
   briefingView,
   storageView,
   storageAlertKeyboard,
+  aiMenuKeyboard,
+  aiMenuView,
+  restartServiceKeyboard,
+  restartConfirmKeyboard,
   node2View,
   backKeyboard,
   helpText,

@@ -11,12 +11,13 @@ const { pihole } = require('./pihole');
 const { dateKeyInTimezone } = require('../lib/format');
 
 class Scheduler {
-  constructor({ notify, selfHeal, storage, eventBus, security }) {
+  constructor({ notify, selfHeal, storage, eventBus, security, sentinelBridge }) {
     this.notify = notify;
     this.selfHeal = selfHeal;
     this.storage = storage;
     this.eventBus = eventBus;
     this.security = security;
+    this.sentinelBridge = sentinelBridge;
     this.timers = [];
   }
 
@@ -49,6 +50,12 @@ class Scheduler {
     this.every(60 * 1000, () => this.selfHeal.checkContainers(), 'self-heal', 20000);
     this.every(60 * 1000, () => this.eventBus.poll(), 'event-bus', 35000);
     this.every(60 * 1000, () => this.security.check(), 'security', 75000);
+    this.every(
+      5 * 60 * 1000,
+      () => this.sentinelBridge?.check(),
+      'sentinel-bridge',
+      120000,
+    );
     this.every(5 * 60 * 1000, () => this.storage.check(), 'storage', 60000);
     this.every(
       10 * 60 * 1000,

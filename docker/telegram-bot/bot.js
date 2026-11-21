@@ -4,7 +4,13 @@ const TelegramBot = require('node-telegram-bot-api');
 const config = require('./config');
 const logger = require('./lib/logger');
 const store = require('./lib/store');
-const { sleep, escapeHtml: esc, formatBytes } = require('./lib/format');
+const {
+  sleep,
+  escapeHtml: esc,
+  htmlToPlain,
+  formatBytes,
+} = require('./lib/format');
+const { rawRequest, getJson } = require('./lib/http');
 const docker = require('./modules/dockerClient');
 const host = require('./modules/hostMetrics');
 const telemetry = require('./modules/telemetry');
@@ -21,6 +27,7 @@ const { SecurityWatcher } = require('./modules/securityWatcher');
 const Scheduler = require('./modules/scheduler');
 const ai = require('./modules/ai');
 const node2 = require('./modules/node2');
+const SentinelBridge = require('./modules/sentinelBridge');
 
 const SELFTEST = process.argv.includes('--selftest');
 
@@ -49,6 +56,22 @@ async function notify(text, extra = {}) {
         ...extra,
       });
     } catch (error) {
+      // La IA genera HTML; si Telegram rechaza entidades, reenviamos texto plano.
+      if (
+        /can't parse entities|parse entities/i.test(error.message || '') &&
+        extra.parse_mode === 'HTML'
+      ) {
+        try {
+          const plainOptions = { ...extra };
+          delete plainOptions.parse_mode;
+          return await bot.sendMessage(config.telegram.chatId, htmlToPlain(body), {
+            disable_web_page_preview: true,
+            ...plainOptions,
+          });
+        } catch (plainError) {
+          logger.warn(`[telegram] fallback texto plano: ${plainError.message}`);
+        }
+      }
       logger.warn(`[telegram] envío falló (${attempt}/3): ${error.message}`);
       if (attempt < 3) await sleep(1500 * attempt);
     }
@@ -68,14 +91,101 @@ async function sendPlain(text) {
   }
 }
 
+async function brainRequest(endpoint, payload) {
+  const response = await rawRequest(`${config.ai.brainUrl}${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: payload,
+    timeout: 180000,
+    maxBytes: 4 * 1024 * 1024,
+  });
+  const data = response.data && typeof response.data === 'object'
+    ? response.data
+    : {};
+  if (response.status !== 200 || !data.ok) {
+    throw new Error(data.error || `AI brain HTTP ${response.status}`);
+  }
+  return data.text || '';
+}
+
+async function askAi(prompt, options = {}) {
+  if (options.audioBuffer) {
+    return brainRequest('/voice', {
+      chat_id: config.telegram.chatId,
+      text: prompt,
+      audio_b64: options.audioBuffer.toString('base64'),
+      mime_type: options.mimeType || 'audio/ogg',
+    });
+  }
+  return brainRequest('/ask', {
+    chat_id: config.telegram.chatId,
+    text: prompt,
+  });
+}
+
+function aiBackKeyboard() {
+  return [[{ text: '⬅️ Menú IA', callback_data: 'menu:back' }]];
+}
+
+async function sendAi(prompt, keyboard = []) {
+  await bot.sendChatAction(config.telegram.chatId, 'typing').catch(() => {});
+  const answer = await askAi(prompt);
+  return notify(answer, {
+    reply_markup: { inline_keyboard: [...keyboard, ...aiBackKeyboard()] },
+  });
+}
+
+async function showAiMenu(messageId = null) {
+  await renderPanel(
+    messageId,
+    ui.aiMenuView(
+      [
+        '🤖 <b>HOMEFLIX AI — MENÚ PRINCIPAL</b>',
+        '━━━━━━━━━━━━━━━━━━━━',
+        'Puedo consultar el clúster, auditar los 13 sensores de Sentinel, revisar seguridad y medios, o reiniciar servicios previa confirmación.',
+        '',
+        '<i>Memoria conversacional: últimos 12 turnos. Usa /clear para borrarla.</i>',
+      ].join('\n'),
+    ),
+  );
+}
+
+async function showRestartMenu(messageId = null) {
+  await renderPanel(messageId, {
+    text: [
+      '🔄 <b>REINICIAR SERVICIO</b>',
+      '━━━━━━━━━━━━━━━━━━━━',
+      'Selecciona un servicio permitido. La orden se ejecuta solo tras tu confirmación explícita.',
+    ].join('\n'),
+    keyboard: ui.restartServiceKeyboard(config.restartWhitelist),
+  });
+}
+
+async function clearAiMemory() {
+  try {
+    await brainRequest('/clear', { chat_id: config.telegram.chatId });
+    return notify('🧹 Memoria conversacional de la IA eliminada para este chat.');
+  } catch (error) {
+    logger.warn(`[ai] clear: ${error.message}`);
+    return notify(`⚠️ No pude limpiar la memoria IA: ${esc(error.message)}`);
+  }
+}
+
+function isAllowedId(id) {
+  return config.telegram.allowedChatIds.map(Number).includes(Number(id));
+}
+
 function isOwnerChat(chatId) {
-  return Number(chatId) === Number(config.telegram.chatId);
+  return isAllowedId(chatId);
 }
 
 function guard(message) {
-  if (message?.chat && isOwnerChat(message.chat.id)) return true;
+  const chatOk = message?.chat && isOwnerChat(message.chat.id);
+  const fromId = message?.from?.id;
+  const fromOk = fromId == null || isOwnerChat(fromId);
+  if (chatOk && fromOk) return true;
   logger.warn(
-    `[security] mensaje no autorizado chat=${message?.chat?.id} user=${message?.from?.username || message?.from?.id}`,
+    `[security] mensaje no autorizado chat=${message?.chat?.id} user=${message?.from?.username || fromId}`,
   );
   return false;
 }
@@ -308,9 +418,9 @@ function resolveService(input) {
 
 async function restartByName(input) {
   const service = resolveService(input);
-  if (!service) {
+  if (!service || !config.restartWhitelist.includes(service.name)) {
     return notify(
-      'No reconozco ese servicio. Usa /containers para ver la lista disponible.',
+      'Servicio no permitido. Usa /menu → 🔄 Reiniciar Servicio para ver la lista blanca.',
     );
   }
   if (service.name === config.selfName) {
@@ -369,8 +479,13 @@ async function openView(action, messageId) {
 }
 
 const COMMANDS = [
+  { command: 'menu', description: 'Menú táctil con IA (2 columnas)' },
+  { command: 'status', description: 'Resumen del clúster por Gemini AI' },
+  { command: 'audit', description: 'Auditoría Sentinel AI (13 sondas)' },
+  { command: 'security', description: 'Pi-hole, DNSSEC y CrowdSec' },
+  { command: 'media', description: 'Descargas, colas y actividad' },
+  { command: 'clear', description: 'Borrar memoria conversacional IA' },
   { command: 'mission', description: 'Panel de control principal' },
-  { command: 'status', description: 'Estado general del servidor' },
   { command: 'telemetry', description: 'Telemetría en vivo' },
   { command: 'containers', description: 'Estado y reinicio de contenedores' },
   { command: 'queue', description: 'Cola de descargas y solicitudes' },
@@ -397,10 +512,28 @@ async function handleCommand(text) {
   switch (command) {
     case 'start':
     case 'mission':
-    case 'status':
-    case 'menu':
     case 'telemetry':
       return showMain();
+    case 'menu':
+      return showAiMenu();
+    case 'status':
+      return sendAi(
+        'Resume el estado actual del clúster: CPU/RAM/disco del Nodo 1 y Nodo 2, contenedores activos y sondas de Sentinel AI.',
+      );
+    case 'audit':
+      return sendAi(
+        'Ejecuta la auditoría completa de Sentinel AI y resume sondas, anomalías y acciones pendientes.',
+      );
+    case 'security':
+      return sendAi(
+        'Genera el reporte de seguridad: bloqueo de Pi-hole, validación DNSSEC de Unbound y decisiones/alertas de CrowdSec IPS.',
+      );
+    case 'media':
+      return sendAi(
+        'Consulta actividad multimedia: descargas activas en qBittorrent, colas de Radarr/Sonarr y lo último en Jellyfin.',
+      );
+    case 'clear':
+      return clearAiMemory();
     case 'containers':
       return showContainers();
     case 'queue':
@@ -500,13 +633,45 @@ async function handleNatural(text) {
     context = '';
   }
 
-  const answer = await ai.chat(text, context);
-  if (answer) return sendPlain(answer);
-  return notify('🤖 No entendí la orden. Usa /help o el panel /mission.');
+  try {
+    const answer = await askAi(text);
+    if (answer) return notify(answer, { reply_markup: { inline_keyboard: aiBackKeyboard() } });
+  } catch (error) {
+    logger.warn(`[ai] brain no disponible, fallback local: ${error.message}`);
+    const answer = await ai.chat(text, context);
+    if (answer) return sendPlain(answer);
+  }
+  return notify('🤖 No entendí la orden. Usa /menu o /help.');
 }
 
 async function onMessage(message) {
   if (!guard(message)) return;
+  // Un update válido indica que el polling volvió a funcionar.
+  onPollingError.count = 0;
+
+  const voice = message.voice || message.audio;
+  if (voice) {
+    try {
+      await bot.sendChatAction(config.telegram.chatId, 'typing').catch(() => {});
+      const stream = await bot.getFileStream(voice.file_id);
+      const chunks = [];
+      for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+      const audioBuffer = Buffer.concat(chunks);
+      const caption = String(message.caption || '').trim();
+      const answer = await askAi(
+        caption || 'Transcribe esta nota de voz y ejecuta la consulta o herramienta que solicite.',
+        { audioBuffer, mimeType: voice.mime_type || 'audio/ogg' },
+      );
+      await notify(answer, {
+        reply_markup: { inline_keyboard: aiBackKeyboard() },
+      });
+    } catch (error) {
+      logger.error(`[voice] ${error.stack || error.message}`);
+      await notify(`⚠️ No pude procesar la nota de voz: ${esc(error.message)}`);
+    }
+    return;
+  }
+
   const text = String(message.text || '').trim();
   if (!text) return;
   try {
@@ -523,9 +688,13 @@ async function onMessage(message) {
 
 async function onCallback(query) {
   const messageId = query.message?.message_id;
-  if (!query.message?.chat || !isOwnerChat(query.message.chat.id)) {
+  const chatOk = query.message?.chat && isOwnerChat(query.message.chat.id);
+  const fromOk = query.from && isAllowedId(query.from.id);
+  if (!chatOk || !fromOk) {
     await ack(query, 'No autorizado');
-    logger.warn(`[security] callback no autorizado chat=${query.message?.chat?.id}`);
+    logger.warn(
+      `[security] callback no autorizado chat=${query.message?.chat?.id} user=${query.from?.username || query.from?.id}`,
+    );
     return;
   }
 
@@ -668,6 +837,82 @@ async function onCallback(query) {
         break;
       }
 
+      case 'menu': {
+        await ack(query);
+        if (action === 'status') {
+          await sendAi(
+            'Resume el estado actual del clúster: CPU/RAM/disco, contenedores y sondas de Sentinel AI.',
+          );
+        } else if (action === 'audit') {
+          await sendAi(
+            'Ejecuta la auditoría completa de Sentinel AI y resume sondas, anomalías y acciones pendientes.',
+          );
+        } else if (action === 'security') {
+          await sendAi(
+            'Genera el reporte de seguridad: Pi-hole, DNSSEC de Unbound y CrowdSec IPS.',
+          );
+        } else if (action === 'media') {
+          await sendAi(
+            'Consulta descargas activas, colas de Radarr/Sonarr y actividad reciente de Jellyfin.',
+          );
+        } else if (action === 'restart') {
+          await showRestartMenu(messageId);
+        } else if (action === 'clear') {
+          await clearAiMemory();
+        } else if (action === 'back') {
+          await showAiMenu(messageId);
+        } else {
+          await ack(query, 'Acción desconocida');
+        }
+        break;
+      }
+
+      case 'ai': {
+        if (action === 'diagnose') {
+          await ack(query, 'Diagnosticando con IA…');
+          const topic = String(argument || '').replace(/_/g, ' ');
+          await sendAi(
+            `Diagnostica con IA el problema relacionado con "${topic}". Usa las herramientas disponibles y propón acciones seguras.`,
+          );
+          break;
+        }
+        if (action === 'restart_menu') {
+          await ack(query);
+          if (!config.restartWhitelist.includes(argument)) {
+            await notify(`⛔ <b>${esc(argument || 'servicio')}</b> no está en la lista blanca.`);
+            break;
+          }
+          await notify(`⚠️ ¿Reiniciar <b>${esc(argument)}</b>?`, {
+            reply_markup: { inline_keyboard: ui.restartConfirmKeyboard(argument) },
+          });
+          break;
+        }
+        if (action === 'restart_yes') {
+          await ack(query, 'Reiniciando…');
+          if (!config.restartWhitelist.includes(argument)) {
+            await notify('⛔ Servicio no permitido.');
+            break;
+          }
+          await notify(`🔄 Reiniciando <b>${esc(argument)}</b>…`);
+          const ok = await docker.restartContainer(argument);
+          await sleep(4000);
+          await notify(
+            ok
+              ? `✅ <b>${esc(argument)}</b> reiniciado.`
+              : `❌ No pude reiniciar <b>${esc(argument)}</b>.`,
+          );
+          await clearButtons(messageId);
+          break;
+        }
+        if (action === 'restart_cancel') {
+          await ack(query, 'Cancelado');
+          await clearButtons(messageId);
+          break;
+        }
+        await ack(query, 'Acción desconocida');
+        break;
+      }
+
       default:
         await ack(query, 'Acción desconocida');
     }
@@ -703,6 +948,21 @@ async function runSelfTest(includePanel = false) {
   await add('Telegram', async () => {
     const me = await bot.getMe();
     return `@${me.username}`;
+  });
+  await add('AI Brain', async () => {
+    const response = await rawRequest(`${config.ai.brainUrl}/ping`, {
+      timeout: 5000,
+    });
+    if (response.status !== 200 || !response.data?.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return `${response.data.model} · ${response.data.allowed} chat(es) autorizado(s)`;
+  });
+  await add('Sentinel AI', async () => {
+    const state = await getJson(`${config.sentinel.url}/api/state`, {
+      timeout: 10000,
+    });
+    return `${Object.keys(state.probes || {}).length} sondas · ${(state.anomalies || []).length} anomalías`;
   });
   await add('Docker', async () => {
     const list = await docker.listContainers();
@@ -753,11 +1013,32 @@ async function runSelfTest(includePanel = false) {
 }
 
 function onPollingError(error) {
+  const message = `${error.code || ''} ${error.message}`.trim();
   if (!onPollingError.lastLog || Date.now() - onPollingError.lastLog > 60000) {
     onPollingError.lastLog = Date.now();
-    logger.warn(
-      `[telegram] polling: ${error.code || ''} ${error.message}`.trim(),
-    );
+    logger.warn(`[telegram] polling: ${message}`);
+  }
+  onPollingError.count = (onPollingError.count || 0) + 1;
+  // El polling de la librería reintenta solo; si falla de forma sostenida
+  // (DNS/Tailscale caído), reiniciamos el bucle de forma controlada.
+  if (onPollingError.count >= 5 && !onPollingError.restarting) {
+    onPollingError.restarting = true;
+    logger.warn('[telegram] 5 errores de polling consecutivos; reiniciando bucle en 30 s');
+    setTimeout(async () => {
+      try {
+        await bot.stopPolling({ cancel: true });
+      } catch (stopError) {
+        logger.debug(`[telegram] stopPolling: ${stopError.message}`);
+      }
+      try {
+        await bot.startPolling({ interval: 1200, params: { timeout: 15 } });
+        logger.info('[telegram] polling reiniciado correctamente');
+      } catch (startError) {
+        logger.error(`[telegram] startPolling: ${startError.message}`);
+      }
+      onPollingError.count = 0;
+      onPollingError.restarting = false;
+    }, 30000);
   }
 }
 
@@ -814,7 +1095,15 @@ const selfHeal = new SelfHeal({ notify });
 const storage = new StorageGuardian({ notify });
 const eventBus = new EventBus({ notify });
 const security = new SecurityWatcher({ notify });
-const scheduler = new Scheduler({ notify, selfHeal, storage, eventBus, security });
+const sentinelBridge = new SentinelBridge({ notify });
+const scheduler = new Scheduler({
+  notify,
+  selfHeal,
+  storage,
+  eventBus,
+  security,
+  sentinelBridge,
+});
 
 if (SELFTEST) {
   runSelfTest(true)

@@ -10,6 +10,36 @@ const toInt = (value, fallback) => {
 const env = process.env;
 const timezone = env.BRIEFING_TZ || env.TZ || 'America/Santo_Domingo';
 
+const allowedChatIds = Array.from(
+  new Set(
+    [env.CHAT_ID, env.TELEGRAM_CHAT_ID, env.ALLOWED_CHAT_IDS]
+      .filter(Boolean)
+      .join(',')
+      .split(',')
+      .map((value) => toInt(String(value).trim(), 0))
+      .filter(Boolean),
+  ),
+);
+
+// Lista blanca explícita de servicios gestionables por la IA / ChatOps.
+const restartWhitelist = [
+  'jellyfin',
+  'jellyseerr',
+  'seerr-theme',
+  'qbittorrent',
+  'radarr',
+  'sonarr',
+  'bazarr',
+  'nextcloud',
+  'immich-server',
+  'immich-microservices',
+  'pihole',
+  'unbound',
+  'crowdsec',
+  'threadfin',
+  'homelab-sentinel',
+];
+
 const expectedContainers = [
   { name: 'jellyfin', label: 'Jellyfin', port: 8096 },
   { name: 'jellyseerr', label: 'Seerr', port: 5055 },
@@ -25,10 +55,16 @@ const expectedContainers = [
 ];
 
 module.exports = {
-  version: '2.1.0',
+  version: '3.0.0',
   telegram: {
-    token: env.TELEGRAM_TOKEN || '',
-    chatId: toInt(env.CHAT_ID, 0),
+    token: env.TELEGRAM_TOKEN || env.TELEGRAM_BOT_TOKEN || '',
+    chatId: toInt(env.CHAT_ID || env.TELEGRAM_CHAT_ID, 0),
+    allowedChatIds: allowedChatIds.length
+      ? allowedChatIds
+      : [toInt(env.CHAT_ID, 0)],
+  },
+  sentinel: {
+    url: env.SENTINEL_URL || 'http://127.0.0.1:9090',
   },
   ownerName: env.OWNER_NAME || 'Angel',
   selfName: 'optiplex-chatops',
@@ -117,6 +153,10 @@ module.exports = {
   ai: {
     groqKey: env.GROQ_API_KEY || '',
     openrouterKey: env.OPENROUTER_API_KEY || '',
+    geminiKey: env.GEMINI_API_KEY || '',
+    model: env.GEMINI_MODEL || 'gemini-2.5-flash',
+    brainUrl: env.AI_BRAIN_URL || 'http://127.0.0.1:5057',
   },
+  restartWhitelist,
   expectedContainers,
 };

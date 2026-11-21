@@ -17,6 +17,53 @@ def get_container_logs(name, tail=60):
     except Exception as e:
         return f'[error reading logs: {e}]'
 
+# --- Telegram actionable alerts ---
+
+_TG_SERVICE_MAP = {
+    'threadfin': 'threadfin', 'Threadfin': 'threadfin',
+    'Pi-hole': 'pihole', 'pihole': 'pihole',
+    'Nextcloud': 'nextcloud', 'nextcloud': 'nextcloud',
+    'Immich': 'immich-server', 'immich': 'immich-server',
+    'Jellyfin': 'jellyfin', 'jellyfin': 'jellyfin',
+    'Unbound DNSSEC': 'unbound', 'unbound': 'unbound',
+    'CrowdSec IPS': 'crowdsec', 'crowdsec': 'crowdsec',
+    'homelab-sentinel': 'homelab-sentinel', 'Sentinel': 'homelab-sentinel',
+    'seerr-theme': 'seerr-theme', 'jellyseerr': 'jellyseerr',
+    'radarr': 'radarr', 'sonarr': 'sonarr', 'bazarr': 'bazarr',
+    'qbittorrent': 'qbittorrent',
+}
+
+_TG_ALLOWED = {
+    'jellyfin', 'jellyseerr', 'seerr-theme', 'qbittorrent', 'radarr', 'sonarr',
+    'bazarr', 'nextcloud', 'immich-server', 'immich-microservices', 'pihole',
+    'unbound', 'crowdsec', 'threadfin', 'homelab-sentinel',
+}
+
+
+def _tg_slug(value):
+    import re
+    slug = re.sub(r'[^a-z0-9]+', '_', str(value or 'sistema').lower()).strip('_')
+    return slug[:28] or 'sistema'
+
+
+def _attach_telegram_actions(anomalies):
+    """Cada anomalía lleva botones inline accionables para el bot de Telegram."""
+    for anomaly in anomalies:
+        component = anomaly.get('component')
+        service = (anomaly.get('params') or {}).get('container') or _TG_SERVICE_MAP.get(component)
+        actions = [{
+            'label': '🩺 Diagnosticar con IA',
+            'callback_data': f"ai:diagnose:{_tg_slug(component)}",
+        }]
+        if service in _TG_ALLOWED:
+            actions.append({
+                'label': '🔄 Reiniciar contenedor',
+                'callback_data': f"ai:restart_menu:{service}",
+            })
+        anomaly['telegram_actions'] = actions
+    return anomalies
+
+
 # --- deterministic analysis ---
 
 def analyze(probes, twin):
@@ -97,7 +144,7 @@ def analyze(probes, twin):
     nfs = probes.get('nfs_node2_storage') or {}
     if nfs and nfs.get('status') in ('down', 'error'):
         anomalies.append({'component':'nfs-node2-storage','severity':'critical','summary':'Enlace NFS /mnt/node2-storage (Nodo 1 → Nodo 2) no está montado o accesible','tier':2,'action':None,'params':{},'details':nfs})
-    return anomalies
+    return _attach_telegram_actions(anomalies)
 
 # --- offline rule engine / LLM escalation ---
 

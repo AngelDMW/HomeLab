@@ -6,6 +6,10 @@ services:
     network_mode: "host"
     env_file:
       - .env
+    environment:
+      - AI_BRAIN_PORT=5057
+      - GEMINI_MODEL=gemini-2.5-flash
+      - SENTINEL_URL=http://127.0.0.1:9090
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /:/hostfs:ro

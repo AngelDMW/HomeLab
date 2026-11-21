@@ -1,4 +1,4 @@
-const CACHE = 'nexus-shell-v2';
+const CACHE = 'nexus-shell-v3';
 const SHELL = ['/', '/static/styles.css', '/static/office.css', '/static/app.js', '/static/office.js', '/manifest.json'];
 
 self.addEventListener('install', (event) => {

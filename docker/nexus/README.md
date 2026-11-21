@@ -556,7 +556,7 @@ docker/nexus/
         ├── office.css     # escenario, actores, burbujas y ficha
         ├── app.js         # lógica de UI, red, bóveda y runbooks
         ├── office.js      # SVG animado, polling 4 s y fichas táctiles
-        ├── sw.js          # service worker (shell cache v2)
+        ├── sw.js          # service worker (shell cache v3)
         ├── manifest.json  # metadatos de instalación
         ├── icon-192.png
         └── icon-512.png

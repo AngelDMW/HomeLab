@@ -26,11 +26,23 @@
     cloud: '#64d2ff', updater: '#bf5af2', backup: '#ffd60a', architect: '#8e8eff',
     qa: '#4ade80',
   };
+  const NAMES = {
+    director: 'HomeLab-Director', infra: 'Infra', secops: 'SecOps', media: 'Media',
+    cloud: 'Cloud', updater: 'Updater', backup: 'Backup', architect: 'Architect', qa: 'QA',
+  };
 
-  // Orden de los 8 puestos (4 columnas x 2 filas) en el viewBox 1000x620.
+  // Orden de los 8 puestos (4 columnas x 2 filas) en el viewBox 1000x520.
+  // Geometría compacta para que quepa completa en 1280x800 sin scroll.
   const ORDER = ['infra', 'secops', 'media', 'cloud', 'updater', 'backup', 'architect', 'qa'];
   const COLS = [140, 380, 620, 860];
-  const ROW_Y = [210, 410];
+  const ROW_Y = [132, 316];
+  const VIEW_W = 1000;
+  const VIEW_H = 520;
+  const STATION_W = 206;
+  const STATION_H = 176;
+  // El burbujeo va ENCIMA del avatar: separado del título y con la cola apuntando al personaje.
+  const BUBBLE_DY = 88;
+  const ACTOR_DY = 166;
 
   let selectedId = null;
   let timer = null;
@@ -65,7 +77,7 @@
       back = `<path d="M-16 -28 Q-38 -12 -28 2 L-16 0 Z" fill="rgba(10,132,255,.18)" stroke="${accent}" stroke-width="1.1"/>
               <rect x="24" y="-42" width="18" height="26" rx="3" fill="rgba(10,132,255,.10)" stroke="${accent}" stroke-width="1"/>`;
       front = `<path d="M-14 -54 Q0 -62 14 -54 L12 -47 Q0 -53 -12 -47 Z" fill="rgba(94,176,255,.28)" stroke="${accent}" stroke-width="1.4"/>
-               <path d="M0 -62 L0 -70" stroke="${accent}" stroke-width="1.4"/><circle cx="0" cy="-71" r="2.4" fill="#5eb0ff"/>
+               <path d="M-3 -62 L0 -68 L3 -62" fill="none" stroke="${accent}" stroke-width="1.4"/>
                <path d="M-9 -20 L9 -20" stroke="${accent}" stroke-width="2" stroke-linecap="round"/>`;
     } else if (id === 'infra') {
       back = `<rect x="-42" y="-52" width="18" height="50" rx="3" fill="#111119" stroke="${accent}" stroke-width="1"/>
@@ -143,7 +155,7 @@
   function buildStage() {
     const stage = $('#office-stage');
     if (!stage || stageBuilt) return;
-    let svg = `<svg viewBox="0 0 1000 620" preserveAspectRatio="xMidYMid meet" role="img" aria-label="HomeLab Corp HQ">
+    let svg = `<svg viewBox="0 0 ${VIEW_W} ${VIEW_H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="HomeLab Corp HQ">
       <defs>
         <linearGradient id="hqDesk" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stop-color="rgba(255,255,255,.06)"/>
@@ -151,40 +163,41 @@
         </linearGradient>
       </defs>
       <g class="hq-grid">`;
-    for (let x = 0; x <= 1000; x += 50) svg += `<line x1="${x}" y1="0" x2="${x}" y2="620"/>`;
-    for (let y = 0; y <= 620; y += 50) svg += `<line x1="0" y1="${y}" x2="1000" y2="${y}"/>`;
+    for (let x = 0; x <= VIEW_W; x += 50) svg += `<line x1="${x}" y1="0" x2="${x}" y2="${VIEW_H}"/>`;
+    for (let y = 0; y <= VIEW_H; y += 50) svg += `<line x1="0" y1="${y}" x2="${VIEW_W}" y2="${y}"/>`;
     svg += `</g>
-      <rect class="hq-floor" x="16" y="8" width="968" height="604" rx="24"/>
-      <text class="hq-sub" x="32" y="34">HOMELAB CORP HQ · PLANTILLA 9 · NODO 1 / NODO 2</text>`;
+      <rect class="hq-floor" x="14" y="6" width="972" height="${VIEW_H - 14}" rx="22"/>
+      <text class="hq-sub" x="30" y="18">HOMELAB CORP HQ · PLANTILLA 9 · NODO 1 / NODO 2</text>`;
 
-    // Cabina del Director
-    svg += `<rect x="330" y="18" width="340" height="160" rx="18" fill="url(#hqDesk)" stroke="rgba(94,176,255,.28)"/>
-      <text class="hq-station-no" x="348" y="40">00 · HOME LAB-DIRECTOR</text>
-      <text class="hq-sub" x="348" y="56">DIRECCIÓN &amp; COORDINACIÓN</text>
-      <rect x="418" y="160" width="164" height="10" rx="5" fill="rgba(10,132,255,.16)" stroke="rgba(94,176,255,.35)"/>`;
+    // Cabina del Director (y=24..124). Título, punto de estado y los 8 puestos
+    // tienen líneas propias: el indicador nunca toca la "R" de DIRECTOR.
+    svg += `<rect x="300" y="24" width="400" height="100" rx="16" fill="url(#hqDesk)" stroke="rgba(94,176,255,.28)"/>
+      <text class="hq-station-no" x="318" y="44">00 · HOME LAB-DIRECTOR</text>
+      <circle id="director-dot" cx="482" cy="41" r="4.5" fill="#30d158" stroke="rgba(5,5,7,.9)" stroke-width="1.5"/>
+      <text class="hq-sub" x="318" y="60">DIRECCIÓN &amp; COORDINACIÓN</text>
+      <text class="hq-status-text" data-status="director" x="318" y="82" text-anchor="start" fill="#8b97a8">◉ EN GUARDIA</text>
+      <rect x="410" y="118" width="180" height="6" rx="3" fill="rgba(10,132,255,.16)" stroke="rgba(94,176,255,.35)"/>`;
 
     // Líneas de datos del Director a las 8 estaciones
     ORDER.forEach((id, index) => {
       const cx = COLS[index % 4];
       const rowY = ROW_Y[Math.floor(index / 4)];
       const endY = rowY + 6;
-      const midY = (178 + endY) / 2;
-      const d = `M 500 170 Q 500 ${midY} ${cx} ${endY}`;
+      const midY = (124 + endY) / 2;
+      const d = `M 500 124 Q 500 ${midY} ${cx} ${endY}`;
       svg += `<path id="link-${id}" class="hq-data-line" d="${d}"/>
         <circle class="hq-particle" r="2.7"><animateMotion dur="${2.6 + (index % 3) * .5}s" begin="-${index * .33}s" repeatCount="indefinite"><mpath href="#link-${id}"/></animateMotion></circle>
         <circle class="hq-particle" r="1.8" opacity=".65"><animateMotion dur="${3.4 + (index % 2) * .4}s" begin="-${1.1 + index * .2}s" repeatCount="indefinite"><mpath href="#link-${id}"/></animateMotion></circle>`;
     });
 
-    // Director
-    svg += `<g class="actor idle_guard" data-actor="director" transform="translate(500,120)" role="button" tabindex="0" aria-label="HomeLab-Director">
-      <circle class="actor-glow" cx="0" cy="-30" r="46" fill="${ACCENTS.director}" opacity="0"/>
-      <ellipse class="actor-ring" cx="0" cy="-28" rx="32" ry="36" fill="none" stroke="${ACCENTS.director}" stroke-width="1.2" stroke-dasharray="4 6"/>
-      ${avatarSvg('director', 'idle_guard', 1.18)}
-      <text class="hq-label" x="0" y="20" text-anchor="middle">HOME LAB-DIRECTOR</text>
-      <text class="hq-status-text" data-status="director" x="0" y="34" text-anchor="middle" fill="#8b97a8">EN GUARDIA</text>
+    // Director (sin etiqueta duplicada: el título ya está en la cabina)
+    svg += `<g class="actor idle_guard" data-actor="director" transform="translate(500,112)" role="button" tabindex="0" aria-label="HomeLab-Director">
+      <circle class="actor-glow" cx="0" cy="-30" r="44" fill="${ACCENTS.director}" opacity="0"/>
+      <ellipse class="actor-ring" cx="0" cy="-28" rx="31" ry="34" fill="none" stroke="${ACCENTS.director}" stroke-width="1.2" stroke-dasharray="4 6"/>
+      ${avatarSvg('director', 'idle_guard', 0.84)}
     </g>`;
 
-    // 8 estaciones
+    // 8 estaciones: encabezado → burbuja → personaje ilustrado, con huecos claros.
     const STATION_LABELS = {
       infra: 'INFRAESTRUCTURA', secops: 'SEGOPS / DEFENSA', media: 'MULTIMEDIA',
       cloud: 'NUBE & FOTOS', updater: 'UPDATER', backup: 'BACKUP 3-2-1',
@@ -193,11 +206,17 @@
     ORDER.forEach((id, index) => {
       const cx = COLS[index % 4];
       const rowY = ROW_Y[Math.floor(index / 4)];
-      const x = cx - 103;
-      svg += `<rect class="hq-desk" x="${x}" y="${rowY}" width="206" height="180" rx="16"/>
-        <rect class="hq-desk-top" x="${x + 10}" y="${rowY + 8}" width="186" height="4" rx="2"/>
-        <text class="hq-station-no" x="${x + 14}" y="${rowY + 26}">${String(index + 1).padStart(2, '0')}</text>
-        <text class="hq-sub" x="${x + 38}" y="${rowY + 26}">${STATION_LABELS[id]}</text>`;
+      const x = cx - STATION_W / 2;
+      const name = NAMES[id] || id;
+      svg += `<rect class="hq-desk" x="${x}" y="${rowY}" width="${STATION_W}" height="${STATION_H}" rx="14"/>
+        <rect class="hq-desk-top" x="${x + 10}" y="${rowY + 8}" width="${STATION_W - 20}" height="4" rx="2"/>
+        <text class="hq-station-no" x="${x + 14}" y="${rowY + 25}">${String(index + 1).padStart(2, '0')}</text>
+        <text class="hq-sub" x="${x + 40}" y="${rowY + 25}">${STATION_LABELS[id]}</text>
+        <g class="actor idle_guard" data-actor="${id}" transform="translate(${cx},${rowY + ACTOR_DY})" role="button" tabindex="0" aria-label="${esc(name)}">
+          <circle class="actor-glow" cx="0" cy="-32" r="40" fill="${ACCENTS[id]}" opacity="0"/>
+          <ellipse class="actor-ring" cx="0" cy="-30" rx="29" ry="32" fill="none" stroke="${ACCENTS[id]}" stroke-width="1.2" stroke-dasharray="4 6"/>
+          ${avatarSvg(id, 'idle_guard', 0.82)}
+        </g>`;
     });
     stage.innerHTML = svg + '</svg><div class="office-bubbles" id="office-bubbles"></div>';
     $$('.actor', stage).forEach(actor => {
@@ -208,15 +227,39 @@
       });
     });
     stageBuilt = true;
+    requestAnimationFrame(positionBubbles);
   }
 
   /* ---------------- Burbujas ---------------- */
+  // Coordenadas del viewBox. La burbuja se ancla ENTRE el título (rowY+25) y la
+  // cabeza del personaje (rowY+ACTOR_DY-61): nunca tapa el encabezado ni el avatar.
   function bubbleAnchor(id) {
-    if (id === 'director') return { x: 50, y: 11 };
+    if (id === 'director') return { x: 748, y: 62 };
     const index = ORDER.indexOf(id);
     const cx = COLS[index % 4];
     const rowY = ROW_Y[Math.floor(index / 4)];
-    return { x: (cx / 1000) * 100, y: ((rowY + 62) / 620) * 100 };
+    return { x: cx, y: rowY + BUBBLE_DY };
+  }
+
+  // Coloca cada burbuja en píxeles reales usando la matriz de pantalla del SVG.
+  // Así sigue alineada aunque el SVG se escale por `max-height` o por el resize.
+  function positionBubbles() {
+    const svg = $('#office-stage svg');
+    const holder = $('#office-bubbles');
+    if (!svg || !holder) return;
+    const ctm = svg.getScreenCTM && svg.getScreenCTM();
+    if (!ctm) return; // pestaña oculta: se recolocará al activarse
+    const stageRect = $('#office-stage').getBoundingClientRect();
+    ['director', ...ORDER].forEach(id => {
+      const el = holder.querySelector(`[data-bubble="${id}"]`);
+      if (!el) return;
+      const p = bubbleAnchor(id);
+      const pt = svg.createSVGPoint();
+      pt.x = p.x; pt.y = p.y;
+      const screen = pt.matrixTransform(ctm);
+      el.style.left = (screen.x - stageRect.left) + 'px';
+      el.style.top = (screen.y - stageRect.top) + 'px';
+    });
   }
 
   function ensureBubbles(data) {
@@ -226,8 +269,12 @@
     if (!holder.childElementCount) {
       holder.innerHTML = ids.map(id => {
         const pos = bubbleAnchor(id);
-        return `<div class="office-bubble soft" data-bubble="${id}" style="left:${pos.x.toFixed(2)}%;top:${pos.y.toFixed(2)}%"></div>`;
+        // Fallback porcentual antes de que el SVG tenga matriz de pantalla.
+        const px = (pos.x / VIEW_W * 100).toFixed(2);
+        const py = (pos.y / VIEW_H * 100).toFixed(2);
+        return `<div class="office-bubble soft" data-bubble="${id}" style="left:${px}%;top:${py}%"></div>`;
       }).join('');
+      requestAnimationFrame(positionBubbles);
     }
     ids.forEach(id => {
       const char = data.characters.find(c => c.id === id);
@@ -277,6 +324,10 @@
         const info = STATES[char.state] || STATES.idle_guard;
         status.textContent = `${info.icon} ${info.label}`;
         status.setAttribute('fill', info.color);
+        if (char.id === 'director') {
+          const dot = stage.querySelector('#director-dot');
+          if (dot) dot.setAttribute('fill', info.color);
+        }
       }
     });
     const hot = new Set((data.active_links || []).filter(l => l.from === 'director').map(l => l.to));
@@ -328,6 +379,7 @@
     updateStage(data);
     renderStats(data);
     renderCards(data);
+    requestAnimationFrame(positionBubbles);
   }
 
   /* ---------------- Ficha interactiva ---------------- */
@@ -478,9 +530,17 @@
   }
 
   $$('[data-tab]').forEach(btn => btn.addEventListener('click', () => {
-    if (btn.dataset.tab === 'office') startOffice();
-    else stopOffice();
+    if (btn.dataset.tab === 'office') {
+      startOffice();
+      requestAnimationFrame(positionBubbles);
+    } else stopOffice();
   }));
+
+  let resizeRaf = 0;
+  window.addEventListener('resize', () => {
+    cancelAnimationFrame(resizeRaf);
+    resizeRaf = requestAnimationFrame(positionBubbles);
+  });
 
   // Si la pestaña ya viene activa (restauración de sesión / PWA).
   const officeTab = $('#tab-office');

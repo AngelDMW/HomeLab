@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const TelegramBot = require('node-telegram-bot-api');
 const config = require('./config');
 const logger = require('./lib/logger');
@@ -36,15 +38,162 @@ if (!config.telegram.token || !config.telegram.chatId) {
   process.exit(1);
 }
 
-const bot = new TelegramBot(
-  config.telegram.token,
-  SELFTEST
-    ? { polling: false }
-    : {
-        polling: { interval: 1200, autoStart: true, params: { timeout: 15 } },
-        request: { family: 4 },
-      },
-);
+// Polling manual (un único bucle controlado). El autoStart de la librería
+// 0.66 deja timers huérfanos al reiniciarlo desde `polling_error` y provoca
+// múltiples getUpdates concurrentes -> 409 + respuestas duplicadas.
+const bot = new TelegramBot(config.telegram.token, {
+  polling: false,
+  request: { family: 4 },
+});
+
+/* ---------- Instancia única + deduplicación estricta por update_id ------- */
+const DATA_DIR = path.join(__dirname, 'data');
+const LOCK_FILE = path.join(DATA_DIR, 'bot-instance.lock');
+const POLL_STATE_FILE = path.join(DATA_DIR, 'telegram_poll_state.json');
+const MAX_SEEN_UPDATES = 1000;
+const POLL_INTERVAL_MS = 1200;
+const POLL_TIMEOUT_S = 15;
+const LOCK_TTL_MS = 60000;
+
+let lockOwnerPid = null;
+let heartbeatTimer = null;
+let pollTimer = null;
+let pollingActive = false;
+let lastUpdateId = 0;
+const seenUpdateIds = new Set();
+
+function pidRunsBot(pid) {
+  if (!pid || pid === process.pid) return false;
+  try {
+    return /bot\.js/.test(fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8'));
+  } catch (err) {
+    return false;
+  }
+}
+
+function writeLock() {
+  fs.writeFileSync(LOCK_FILE, JSON.stringify({
+    pid: process.pid,
+    started_at: new Date().toISOString(),
+    ts: Date.now(),
+  }));
+}
+
+function acquireInstanceLock() {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  try {
+    const fd = fs.openSync(LOCK_FILE, 'wx');
+    fs.closeSync(fd);
+    writeLock();
+    lockOwnerPid = process.pid;
+    heartbeatTimer = setInterval(() => {
+      if (lockOwnerPid === process.pid) {
+        try { writeLock(); } catch (err) { logger.warn(`[bot] lock heartbeat: ${err.message}`); }
+      }
+    }, 15000);
+    return;
+  } catch (err) {
+    if (err.code !== 'EEXIST') {
+      logger.error(`[bot] no se pudo crear el lock de instancia: ${err.message}`);
+      process.exit(2);
+    }
+  }
+
+  let info = null;
+  try { info = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8')); } catch (err) { info = null; }
+  const age = info && Number.isFinite(info.ts) ? Date.now() - info.ts : Infinity;
+  if (pidRunsBot(Number(info && info.pid)) && age < LOCK_TTL_MS) {
+    logger.error(`[bot] instancia duplicada detectada (pid ${info.pid}); saliendo para no duplicar respuestas.`);
+    process.exit(2);
+  }
+  // Lock huérfano (proceso muerto o heartbeat caducado): se recupera.
+  try {
+    fs.unlinkSync(LOCK_FILE);
+    const fd = fs.openSync(LOCK_FILE, 'wx');
+    fs.closeSync(fd);
+    writeLock();
+    lockOwnerPid = process.pid;
+    heartbeatTimer = setInterval(() => {
+      if (lockOwnerPid === process.pid) {
+        try { writeLock(); } catch (err) { logger.warn(`[bot] lock heartbeat: ${err.message}`); }
+      }
+    }, 15000);
+    logger.warn('[bot] lock de instancia huérfano recuperado');
+  } catch (retryError) {
+    logger.error(`[bot] no se pudo adquirir lock de instancia: ${retryError.message}`);
+    process.exit(2);
+  }
+}
+
+function releaseInstanceLock() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+  if (lockOwnerPid !== process.pid) return;
+  try {
+    const info = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8'));
+    if (Number(info.pid) === process.pid) fs.unlinkSync(LOCK_FILE);
+  } catch (err) { logger.debug(`[bot] release lock: ${err.message}`); }
+  lockOwnerPid = null;
+}
+
+function loadPollState() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(POLL_STATE_FILE, 'utf8'));
+    const value = Number(raw.offset);
+    if (Number.isFinite(value) && value >= 0) return Math.floor(value);
+  } catch (err) { logger.debug(`[bot] poll state: ${err.message}`); }
+  return 0;
+}
+
+function savePollState() {
+  try {
+    const tmp = `${POLL_STATE_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({
+      offset: lastUpdateId,
+      updated_at: new Date().toISOString(),
+    }));
+    fs.renameSync(tmp, POLL_STATE_FILE);
+  } catch (err) {
+    logger.warn(`[telegram] no se pudo persistir offset de polling: ${err.message}`);
+  }
+}
+
+function markUpdateSeen(update) {
+  const id = Number(update && update.update_id);
+  if (!Number.isFinite(id) || id <= 0) return false;
+  if (id < lastUpdateId || seenUpdateIds.has(id)) return false;
+  lastUpdateId = id + 1;
+  seenUpdateIds.add(id);
+  if (seenUpdateIds.size > MAX_SEEN_UPDATES) {
+    seenUpdateIds.delete(seenUpdateIds.values().next().value);
+  }
+  savePollState();
+  return true;
+}
+
+function tagUpdatePayload(update) {
+  const payload = update.message || update.edited_message || update.callback_query
+    || update.channel_post || update.inline_query || null;
+  if (!payload) return;
+  try {
+    Object.defineProperty(payload, '__homelabUpdateId', {
+      value: Number(update.update_id), enumerable: false, configurable: true,
+    });
+  } catch (err) { logger.debug(`[telegram] tag update: ${err.message}`); }
+}
+
+function claimUpdateId(payload) {
+  const id = payload && payload.__homelabUpdateId;
+  if (id == null) return true; // updates inyectados manualmente (selftest)
+  if (!claimUpdateId.seen) claimUpdateId.seen = new Set();
+  if (claimUpdateId.seen.has(id)) return false;
+  claimUpdateId.seen.add(id);
+  if (claimUpdateId.seen.size > MAX_SEEN_UPDATES) {
+    claimUpdateId.seen.delete(claimUpdateId.seen.values().next().value);
+  }
+  return true;
+}
+
+process.on('exit', releaseInstanceLock);
 
 async function notify(text, extra = {}) {
   const body = String(text || '').slice(0, 4000);
@@ -795,6 +944,11 @@ async function handleNatural(text) {
 
 async function onMessage(message) {
   if (!guard(message)) return;
+  // Deduplicación estricta: un update_id nunca puederesponderse dos veces.
+  if (!claimUpdateId(message)) {
+    logger.debug(`[telegram] update duplicado ignorado (message_id=${message.message_id})`);
+    return;
+  }
   // Un update válido indica que el polling volvió a funcionar.
   onPollingError.count = 0;
 
@@ -836,6 +990,11 @@ async function onMessage(message) {
 }
 
 async function onCallback(query) {
+  if (!claimUpdateId(query)) {
+    logger.debug(`[telegram] callback duplicado ignorado (id=${query.id})`);
+    await ack(query);
+    return;
+  }
   const messageId = query.message?.message_id;
   const chatOk = query.message?.chat && isOwnerChat(query.message.chat.id);
   const fromOk = query.from && isAllowedId(query.from.id);
@@ -1190,42 +1349,59 @@ function onPollingError(error) {
     logger.warn(`[telegram] polling: ${message}`);
   }
   onPollingError.count = (onPollingError.count || 0) + 1;
-  // El polling de la librería reintenta solo; si falla de forma sostenida
-  // (DNS/Tailscale caído), reiniciamos el bucle de forma controlada.
-  if (onPollingError.count >= 5 && !onPollingError.restarting) {
-    onPollingError.restarting = true;
-    logger.warn('[telegram] 5 errores de polling consecutivos; reiniciando bucle en 30 s');
-    setTimeout(async () => {
-      try {
-        await bot.stopPolling({ cancel: true });
-      } catch (stopError) {
-        logger.debug(`[telegram] stopPolling: ${stopError.message}`);
+  // NUNCA llamar a startPolling()/stopPolling() de la librería: en 0.66.x
+  // `cancel: true` deja un setTimeout vivo que crea otro bucle y duplica updates.
+  // Este único bucle reintenta solo cada 1,2 s.
+}
+
+async function pollOnce() {
+  if (!pollingActive) return;
+  try {
+    const updates = await bot.getUpdates({ offset: lastUpdateId, timeout: POLL_TIMEOUT_S });
+    if (Array.isArray(updates) && updates.length) {
+      for (const update of updates) {
+        if (!markUpdateSeen(update)) continue;
+        tagUpdatePayload(update);
+        try {
+          bot.processUpdate(update);
+        } catch (err) {
+          logger.error(`[telegram] processUpdate(${update.update_id}): ${err.message}`);
+        }
       }
-      try {
-        await bot.startPolling({ interval: 1200, params: { timeout: 15 } });
-        logger.info('[telegram] polling reiniciado correctamente');
-      } catch (startError) {
-        logger.error(`[telegram] startPolling: ${startError.message}`);
-      }
-      onPollingError.count = 0;
-      onPollingError.restarting = false;
-    }, 30000);
+    }
+    onPollingError.count = 0;
+  } catch (err) {
+    onPollingError(err);
+  } finally {
+    if (pollingActive) pollTimer = setTimeout(pollOnce, POLL_INTERVAL_MS);
   }
+}
+
+function startPollingLoop() {
+  if (pollingActive) return;
+  pollingActive = true;
+  pollOnce();
+}
+
+function stopPollingLoop() {
+  pollingActive = false;
+  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
 }
 
 async function shutdown(signal) {
   logger.info(`[bot] recibido ${signal}; apagando…`);
+  stopPollingLoop();
   scheduler.stop();
   store.flush();
-  try {
-    await bot.stopPolling({ cancel: true });
-  } catch (error) {
-    logger.debug(`[bot] stopPolling: ${error.message}`);
-  }
+  releaseInstanceLock();
   process.exit(0);
 }
 
 async function start() {
+  acquireInstanceLock();
+  lastUpdateId = loadPollState();
+  logger.info(`[telegram] polling único iniciado; offset persistido=${lastUpdateId}`);
+
   try {
     await bot.setMyCommands(COMMANDS);
   } catch (error) {
@@ -1241,12 +1417,15 @@ async function start() {
   });
   process.on('uncaughtException', (error) => {
     logger.error(`[process] uncaughtException: ${error?.stack || error}`);
+    stopPollingLoop();
+    releaseInstanceLock();
     process.exit(1);
   });
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
   scheduler.start();
+  startPollingLoop();
   logger.info(
     `[bot] Optiplex Brain ${config.version} online; chat autorizado ${config.telegram.chatId}`,
   );

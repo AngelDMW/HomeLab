@@ -154,6 +154,26 @@ def _init_autonomy_db() -> None:
         )
         conn.commit()
 
+        # Migración tolerante: las propuestas nuevas exigen risk y action_payload.
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(improvement_proposals)")}
+        if "risk" not in cols:
+            conn.execute("ALTER TABLE improvement_proposals ADD COLUMN risk TEXT")
+        if "action_payload" not in cols:
+            conn.execute("ALTER TABLE improvement_proposals ADD COLUMN action_payload TEXT")
+        conn.execute(
+            "UPDATE improvement_proposals SET risk='bajo' "
+            "WHERE risk IS NULL OR risk='' OR lower(risk)='n/d'"
+        )
+        for row in conn.execute(
+            "SELECT id, action FROM improvement_proposals "
+            "WHERE action_payload IS NULL OR action_payload=''"
+        ).fetchall():
+            conn.execute(
+                "UPDATE improvement_proposals SET action_payload=? WHERE id=?",
+                (json.dumps({"action": row["action"], "params": {}}, ensure_ascii=False), row["id"]),
+            )
+        conn.commit()
+
 
 _init_autonomy_db()
 
@@ -607,7 +627,6 @@ async def tools_architect(body: dict, x_corp_token: str = Header(default="")) ->
     twin = state.get("twin") or {}
     ssd = (((twin.get("nodes") or {}).get("host") or {}).get("ssd") or {})
     used_pct = ssd.get("used_pct")
-    repairs = state.get("repairs") or []
 
     with closing(_connect()) as conn:
         quality = conn.execute(
@@ -625,38 +644,73 @@ async def tools_architect(body: dict, x_corp_token: str = Header(default="")) ->
     if used_pct is not None and used_pct >= 88:
         proposals.append({
             "title": "Liberar caché de build de Docker",
-            "rationale": f"/dev/sda1 al {used_pct}% (umbral 88%). Limpieza segura de caché de compilación.",
-            "action": "clean_build_cache", "severity": "warn",
+            "rationale": (
+                f"/dev/sda1 está al {used_pct}% (umbral 88%). "
+                "La limpieza de caché de compilación es segura y no toca volúmenes de datos."
+            ),
+            "action": "clean_build_cache",
+            "risk": "bajo",
+            "action_payload": {"action": "clean_build_cache", "params": {"threshold": 88}},
+            "severity": "warn",
             "evidence": {"used_pct": used_pct},
         })
     if anomalies:
+        affected = []
+        for anomaly in anomalies[:8]:
+            if isinstance(anomaly, dict):
+                affected.append(str(anomaly.get("service") or anomaly.get("component") or "sentinel"))
+        target = affected[0] if affected else "sentinel"
         proposals.append({
             "title": "Revisar anomalías detectadas por Sentinel",
-            "rationale": f"{len(anomalies)} anomalías activas requieren seguimiento del especialista.",
-            "action": "review_anomaly", "severity": "warn",
-            "evidence": [a.get("summary") for a in anomalies[:8]],
+            "rationale": (
+                f"Hay {len(anomalies)} anomalías activas que requieren seguimiento. "
+                "Se propone inspeccionar el servicio afectado antes de decidir cambios."
+            ),
+            "action": "review_anomaly",
+            "risk": "medio",
+            "action_payload": {"action": "inspect_service", "params": {"service": target}},
+            "severity": "warn",
+            "evidence": [a.get("summary") if isinstance(a, dict) else str(a) for a in anomalies[:8]],
         })
     for row in counts:
         if row["n"] >= 2:
+            service = str(row["service"] or "sentinel")
             proposals.append({
-                "title": f"Revisar recurrencia en {row['service']}",
-                "rationale": f"{row['n']} intervenciones en 7 días; conviene analizar causa raíz.",
-                "action": "review_component", "severity": "info",
+                "title": f"Revisar recurrencia en {service}",
+                "rationale": (
+                    f"Se registraron {row['n']} intervenciones en {service} durante los últimos 7 días. "
+                    "Conviene inspeccionar el contenedor para identificar la causa raíz."
+                ),
+                "action": "review_component",
+                "risk": "bajo",
+                "action_payload": {"action": "inspect_service", "params": {"service": service}},
+                "severity": "info",
                 "evidence": row,
             })
     if avg_quality and avg_quality < 0.8:
         proposals.append({
             "title": "Elevar calidad de los informes del equipo",
-            "rationale": f"Calidad media de Agent-QA: {avg_quality} en los últimos 7 días.",
-            "action": "review_qa", "severity": "info", "evidence": {"avg_quality": avg_quality},
-        })
-    if not proposals:
-        proposals.append({
-            "title": "Mantener línea base y próxima auditoría",
-            "rationale": "Sin anomalías ni recurrencias relevantes; conservar la configuración actual.",
-            "action": "maintain_baseline", "severity": "info", "evidence": {},
+            "rationale": (
+                f"La calidad media de Agent-QA es {avg_quality} en los últimos 7 días. "
+                "Se recomienda revisar el servicio de Corp antes de ajustar los prompts."
+            ),
+            "action": "review_qa",
+            "risk": "bajo",
+            "action_payload": {"action": "inspect_service", "params": {"service": "corp-tools-api"}},
+            "severity": "info",
+            "evidence": {"avg_quality": avg_quality},
         })
 
+    # Normalización obligatoria: risk siempre bajo/medio y payload ejecutable.
+    for proposal in proposals:
+        risk = str(proposal.get("risk") or "bajo").strip().lower()
+        proposal["risk"] = risk if risk in {"bajo", "medio"} else "bajo"
+        payload = proposal.get("action_payload")
+        if not isinstance(payload, dict) or not payload.get("action"):
+            payload = {"action": proposal["action"], "params": {}}
+        proposal["action_payload"] = payload
+
+    no_op = not proposals
     inserted = []
     with closing(_connect()) as conn:
         for proposal in proposals:
@@ -670,14 +724,23 @@ async def tools_architect(body: dict, x_corp_token: str = Header(default="")) ->
                 continue
             cur = conn.execute(
                 "INSERT INTO improvement_proposals "
-                "(title, rationale, action, severity, evidence, status, created_at) "
-                "VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+                "(title, rationale, action, severity, evidence, status, created_at, risk, action_payload) "
+                "VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
                 (proposal["title"][:300], proposal["rationale"][:2000], action,
-                 proposal["severity"], json.dumps(proposal["evidence"], ensure_ascii=False)[:8000], _now()),
+                 proposal["severity"], json.dumps(proposal["evidence"], ensure_ascii=False)[:8000],
+                 _now(), proposal["risk"],
+                 json.dumps(proposal["action_payload"], ensure_ascii=False)[:4000]),
             )
             inserted.append(cur.lastrowid)
+        # Propuestas no-op históricas nunca deben aparecer en la bandeja.
+        conn.execute(
+            "UPDATE improvement_proposals SET status='closed', decided_by=?, decided_at=? "
+            "WHERE status='pending' AND (lower(action)='maintain_baseline' "
+            "OR lower(title) LIKE '%mantener línea base%')",
+            ("architect-no-op-filter", _now()),
+        )
         pending = [dict(row) for row in conn.execute(
-            "SELECT id, title, rationale, action, severity, status, created_at "
+            "SELECT id, title, rationale, action, severity, risk, action_payload, status, created_at "
             "FROM improvement_proposals WHERE status='pending' ORDER BY id DESC LIMIT 12"
         ).fetchall()]
         conn.commit()
@@ -686,15 +749,33 @@ async def tools_architect(body: dict, x_corp_token: str = Header(default="")) ->
     if used_pct is not None and used_pct >= 88:
         maintenance = _sentinel_action("clean_build_cache", {"threshold": 88})
 
-    _record_report("Agent-Architect",
-                   f"Auditoría de evolución: {len(inserted)} propuestas nuevas, "
-                   f"{len(pending)} pendientes, QA medio {avg_quality}",
-                   pending, severity="WARN" if anomalies else "OK",
-                   directive="Automejora semanal")
-    return {"ok": True, "probes_total": len(probes), "anomalies": len(anomalies),
-            "ssd_used_pct": used_pct, "avg_quality": avg_quality,
-            "new_proposals": inserted, "pending_proposals": pending,
-            "preventive_maintenance": maintenance}
+    if no_op:
+        _record_report(
+            "Agent-Architect",
+            "Auditoría de evolución: línea base estable; sin cambios recomendados.",
+            [{"level": "OK", "text": "Sin anomalías ni recurrencias relevantes; no se generaron propuestas."}],
+            severity="OK",
+            directive="Automejora semanal",
+        )
+    else:
+        _record_report(
+            "Agent-Architect",
+            f"Auditoría de evolución: {len(inserted)} propuestas nuevas, "
+            f"{len(pending)} pendientes, QA medio {avg_quality}",
+            pending, severity="WARN" if anomalies else "OK",
+            directive="Automejora semanal",
+        )
+    return {
+        "ok": True,
+        "probes_total": len(probes),
+        "anomalies": len(anomalies),
+        "ssd_used_pct": used_pct,
+        "avg_quality": avg_quality,
+        "new_proposals": inserted,
+        "pending_proposals": pending,
+        "no_op": no_op,
+        "preventive_maintenance": maintenance,
+    }
 
 
 @router.get("/api/tools/backup/history")
@@ -749,6 +830,19 @@ async def apply_proposal(proposal_id: int, body: dict | None = None,
         action = row["action"]
         if action not in ALLOWED_PROPOSAL_ACTIONS:
             raise HTTPException(status_code=400, detail=f"acción no aplicable automáticamente: {action}")
+        try:
+            payload = json.loads(row["action_payload"] or "{}")
+        except (TypeError, ValueError):
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        exec_action = str(payload.get("action") or action)
+        exec_params = payload.get("params") or {}
+        if not isinstance(exec_params, dict):
+            exec_params = {}
+        execution = None
+        if exec_action in {"clean_build_cache", "inspect_service"}:
+            execution = _sentinel_action(exec_action, exec_params)
         conn.execute(
             "UPDATE improvement_proposals SET status='applied', decided_by=?, decided_at=? WHERE id=?",
             (decided_by, _now(), proposal_id),
@@ -763,4 +857,4 @@ async def apply_proposal(proposal_id: int, body: dict | None = None,
                    [{"level": "OK", "text": row["rationale"][:500]}],
                    directive="Aprobación de mejora")
     return {"ok": True, "id": proposal_id, "status": "applied",
-            "title": row["title"], "action": action}
+            "title": row["title"], "action": action, "execution": execution}

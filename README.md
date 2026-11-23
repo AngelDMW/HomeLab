@@ -367,3 +367,5 @@ qBittorrent's WebUI is also published to the tailnet over HTTPS at `https://serv
 | Sentinel | L7 probes | **15** | — |
 
 Current verified baseline (2026-11-21): Sentinel audit `ok:true` with **15/15 probes and 0 anomalies**; Nexus healthy on `:8888` with 19 services, 11 runbooks and 1 note; Corp with 9/9 workflows active and the `20261121_175856` backup verified; bot selftest 12/12. Node 1 runs 22 containers, uses about 4.2 GiB of 7.6 GiB and has 31 GB free on `/dev/sda1` (86%). Node 2 runs the Corp stack, Immich ML and the Portainer agent at about 1.5 GiB of 3.8 GiB, with 808 GB free on `/mnt/storage`. DNSSEC returns `SERVFAIL` for `sigfail` and `NOERROR` + `AD` for `sigok`; CrowdSec has the private whitelist loaded and zero active decisions; no OOMKilled containers or restart loops are present.
+
+- Verificación GitOps 2026-11-23: control autónomo de GitHub operativo desde Director, Updater y Telegram /dev.

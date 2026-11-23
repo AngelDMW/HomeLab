@@ -345,10 +345,11 @@ async def repo_apply_change(body: dict = Body(...),
             "ORDER BY id DESC LIMIT 1", (directive_hash,)
         ).fetchone()
     if prior and prior["commit_hash"]:
+        audit_after = (json.loads(prior["detail"] or "{}")).get("audit_after")
         return {"ok": True, "already_applied": True, "commit_hash": prior["commit_hash"],
                 "files": json.loads(prior["files_json"]), "requested_by": requested_by,
-                "summary": prior["summary"], "audit": (json.loads(prior["detail"] or "{}")
-                                                       ).get("audit_after")}
+                "summary": prior["summary"], "audit": audit_after,
+                "audit_after": audit_after}
 
     try:
         inspection = _agent({"op": "inspect"}, timeout=60)

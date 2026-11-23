@@ -83,7 +83,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const task = $('Abrir tarea').first().json || {};\nconst hookNode = $('Webhook Director');\nconst hook = hookNode.length ? hookNode.first().json : {};\nconst body = hook.body || hook;\nconst directive = String(body.directive || task.directive || 'Ejecuta una ronda inicial de inspección con los 8 empleados y entrega el primer reporte ejecutivo');\nconst requested_by = String(body.requested_by || (hookNode.length ? 'telegram' : 'schedule'));\nconst gitops_change = body.mode === 'code_change' || body.apply_github_change === true;\nreturn [{json:{\n  directive,\n  task_id: task.task_id || null,\n  round_id: 'CORP-' + new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14),\n  requested_by,\n  gitops_change,\n  source: hookNode.length ? 'webhook' : 'schedule'\n}}];",
+        "jsCode": "const task = $('Abrir tarea').first().json || {};\nlet hook = {};\ntry { hook = $('Webhook Director').first().json || {}; } catch (e) {}\nconst body = hook.body || hook;\nconst directive = String(body.directive || task.directive || 'Ejecuta una ronda inicial de inspección con los 8 empleados y entrega el primer reporte ejecutivo');\nconst requested_by = String(body.requested_by || (body.mode === 'code_change' ? 'telegram_user' : 'schedule'));\nconst gitops_change = body.mode === 'code_change' || body.apply_github_change === true;\nreturn [{json:{\n  directive,\n  task_id: task.task_id || null,\n  round_id: 'CORP-' + new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14),\n  requested_by,\n  gitops_change,\n  source: body.mode === 'code_change' ? 'webhook' : 'schedule'\n}}];",
         "mode": "runOnceForAllItems"
       }
     },

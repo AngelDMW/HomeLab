@@ -575,5 +575,7 @@ async def tools_qa(x_corp_token: str = Header(default="")) -> dict:
 # Se importa al final para reutilizar el helpers ya definidos sin ciclos.
 # --------------------------------------------------------------------------- #
 from autonomy import router as autonomy_router  # noqa: E402
+from gitops import router as gitops_router  # noqa: E402
 
 app.include_router(autonomy_router)
+app.include_router(gitops_router)

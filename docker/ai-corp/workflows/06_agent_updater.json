@@ -28,7 +28,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const _wh = $('Webhook Updater').first().json || {};\nconst d = _wh.body || _wh;\nconst directive = String(d.directive || '');\nconst apply = d.apply_updates === true || /aplicar actualiz|apply updates|actualiza ahora/i.test(directive);\nreturn [{json: {\n  dry_run: !apply,\n  directive,\n  task_id: d.task_id || null,\n  round_id: d.round_id || null,\n  requested_by: d.requested_by || 'director'\n}}];",
+        "jsCode": "const _wh = $('Webhook Updater').first().json || {};\nconst d = _wh.body || _wh;\nconst directive = String(d.directive || '');\nconst apply = d.apply_updates === true || /aplicar actualiz|apply updates|actualiza ahora/i.test(directive);\nconst gitops_change = d.apply_github_change === true || d.mode === 'code_change' ||\n  /repo:\\s*apply|apply[- ]change/i.test(directive);\nreturn [{json: {\n  dry_run: !apply,\n  directive,\n  task_id: d.task_id || null,\n  round_id: d.round_id || null,\n  requested_by: d.requested_by || 'director',\n  gitops_change\n}}];",
         "mode": "runOnceForAllItems"
       }
     },
@@ -237,6 +237,102 @@
         "responseBody": "={{ JSON.stringify($('Respuesta Updater').first().json) }}",
         "options": {}
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "gitops-change-flag",
+              "leftValue": "={{ $json.gitops_change }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "gitops_if_updater",
+      "name": "¿Cambio de código en repo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.1.4:8006/api/tools/repo/apply-change",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 300000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ directive: $('Preparar Updater').first().json.directive, requested_by: 'updater' }) }}"
+      },
+      "id": "gitops_apply_updater",
+      "name": "GitOps aplicar cambio (Updater)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        430,
+        360
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $('GitOps aplicar cambio (Updater)').first().json || {};\nconst p = $('Preparar Updater').first().json || {};\nconst OK = r.ok === true;\nreturn [{json: {\n  employee: 'Agent-Updater',\n  ok: OK,\n  severity: OK ? 'OK' : 'CRIT',\n  quality_score: 0.95,\n  summary: (OK ? 'Cambio versionado y subido a origin/main: ' : 'No se pudo aplicar el cambio: ') +\n    (r.commit_hash || r.error || 'sin detalle'),\n  findings: [{ level: OK ? 'OK' : 'CRIT', text: (r.files || []).join(', ') || 'sin archivos' }],\n  evidence: JSON.stringify(r).slice(0, 4000),\n  directive: p.directive || '',\n  task_id: p.task_id || null,\n  round_id: p.round_id || null,\n  gitops: {\n    commit_hash: r.commit_hash || null,\n    files: r.files || [],\n    rollback: !!r.rollback,\n    probes_total: ((r.audit_after || {}).probes_total) || null\n  }\n}}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "gitops_reply_updater",
+      "name": "Respuesta GitOps Updater",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        650,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Respuesta GitOps Updater').first().json) }}",
+        "options": {}
+      },
+      "id": "gitops_respond_updater",
+      "name": "Responder GitOps Updater",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        870,
+        360
+      ]
     }
   ],
   "connections": {
@@ -326,7 +422,7 @@
       "main": [
         [
           {
-            "node": "Tools Updater",
+            "node": "¿Cambio de código en repo?",
             "type": "main",
             "index": 0
           }
@@ -342,6 +438,51 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "¿Cambio de código en repo?": {
+      "main": [
+        [
+          {
+            "node": "GitOps aplicar cambio (Updater)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tools Updater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitOps aplicar cambio (Updater)": {
+      "main": [
+        [
+          {
+            "node": "Respuesta GitOps Updater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta GitOps Updater": {
+      "main": [
+        [
+          {
+            "node": "Responder GitOps Updater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder GitOps Updater": {
+      "main": [
+        []
       ]
     }
   },

@@ -72,3 +72,7 @@ docker/threadfin/root_crontab.new
 docker/threadfin/apply_settings.py
 __pycache__/
 *.pyc
+
+# GitOps: llave SSH dedicada Nodo 2 -> Nodo 1 (nunca versionar)
+docker/ai-corp/ssh/*
+!docker/ai-corp/ssh/.gitkeep

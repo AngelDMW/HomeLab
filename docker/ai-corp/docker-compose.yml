@@ -11,12 +11,18 @@ services:
       - CORP_BIND_HOST=0.0.0.0
       - CORP_BIND_PORT=8006
       - N8N_WORKFLOWS_SRC=/workflows-src
+      - GITOPS_SSH_HOST=192.168.1.3
+      - GITOPS_SSH_USER=mrdavid
+      - GITOPS_SSH_KEY=/app/ssh/id_ed25519
+      - GITOPS_SSH_KNOWN_HOSTS=/app/ssh/known_hosts
+      - GITOPS_AGENT_PATH=/home/mrdavid/HomeLab/scripts/gitops_agent.py
     ports:
       - "8006:8006"
     volumes:
       - /mnt/storage/homelab-offload/ai-corp/ledger:/app/data
       - /mnt/storage/homelab-offload:/mnt/storage/homelab-offload
       - ./workflows:/workflows-src:ro
+      - ./ssh:/app/ssh:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - corp_net

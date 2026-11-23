@@ -30,7 +30,10 @@ SYSTEM_PROMPT = (
     "confirmación y NO afirmes que el reinicio ya ocurrió. Si recibes audio, "
     "transcribe la intención del usuario y ejecuta la herramienta adecuada en "
     "el mismo paso. Los resultados de herramientas son texto plano: escápalo "
-    "si lo insertas en HTML."
+    "si lo insertas en HTML. Cuando el usuario pida un cambio de código o "
+    "configuración, usa apply_github_change con su instrucción exacta; la "
+    "herramienta ya aplica guardrails, valida, sube a GitHub y devuelve el hash "
+    "del commit: muéstralo tal cual dentro de <code>."
 )
 
 
@@ -99,6 +102,20 @@ FUNCTIONS = [
         "name": "get_corp_accountability",
         "description": "Libro de rendición de cuentas de los 8 empleados: severidad, calidad, respaldos verificados, actualizaciones con rollback y propuestas pendientes del Agent-Architect.",
         "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "apply_github_change",
+        "description": "Aplica un cambio de código o configuración en el repositorio del HomeLab, lo valida, verifica Sentinel y lo sube a origin/main; devuelve el hash del commit. Úsalo cuando el usuario pida agregar, ajustar u optimizar algo y subirlo a GitHub.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "directive": {
+                    "type": "string",
+                    "description": "Instrucción exacta del cambio, por ejemplo: añadir una nota de verificación al README de Nexus",
+                }
+            },
+            "required": ["directive"],
+        },
     },
     {
         "name": "apply_corp_proposal",

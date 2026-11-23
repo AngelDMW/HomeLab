@@ -617,6 +617,59 @@ async function corpRequest(path, options = {}) {
   return response.data && typeof response.data === 'object' ? response.data : {};
 }
 
+async function applyGithubChange(directive, messageId = null) {
+  const clean = String(directive || '').trim();
+  if (!clean) return notify('Uso: /dev <instrucción de cambio>');
+  const progress = await notify(
+    '⚙️ <b>HomeLab-Director</b> está analizando el repositorio, aplicando los cambios y validando el clúster…',
+  );
+  const targetId = messageId || progress?.message_id || null;
+  try {
+    const response = await rawRequest(config.corp.directorUrl, {
+      method: 'POST',
+      timeout: 420000,
+      body: {
+        directive: clean,
+        mode: 'code_change',
+        requested_by: 'telegram_user',
+        notify: false,
+      },
+    });
+    const data = response.data && typeof response.data === 'object' ? response.data : {};
+    if (response.status < 200 || response.status >= 300 || data.ok === false) {
+      throw new Error(String(data.error || data.report || `Director HTTP ${response.status}`));
+    }
+    const gitops = data.gitops || {};
+    const hash = gitops.commit_hash || data.commit_hash || 'sin hash';
+    const rollback = !!gitops.rollback;
+    const anomalies = gitops.anomaly_count ?? (gitops.new_anomalies || []).length;
+    const lines = [
+      rollback
+        ? '⚠️ <b>CAMBIO REVERTIDO — rollback automático</b>'
+        : '✅ <b>CAMBIO APLICADO Y SUBIDO A GITHUB</b>',
+      `<b>Resumen:</b> ${esc(String(data.summary || data.report || '').slice(0, 1200))}`,
+      `<b>Commit:</b> <code>${esc(String(hash))}</code> · github.com/AngelDMW/HomeLab`,
+      `<b>Archivos:</b> ${esc((gitops.files || []).join(', ') || 'n/d')}`,
+      `🩺 Sentinel: ${esc(String(gitops.probes_total || 'n/d'))} sondas · anomalías nuevas: ${esc(String(anomalies))}`,
+      rollback
+        ? 'El servicio anterior fue restaurado. Revisa /audit antes de reintentar.'
+        : 'Servicios y 15 sondas de Sentinel saludables.',
+    ];
+    await renderPanel(targetId, {
+      text: lines.join('\n'),
+      keyboard: [
+        [{ text: '📊 Ver Corp', callback_data: 'corp:report' }],
+        [{ text: '⬅️ Menú IA', callback_data: 'menu:back' }],
+      ],
+    });
+  } catch (error) {
+    await renderPanel(targetId, {
+      text: `⚠️ No pude aplicar el cambio: ${esc(error.message)}`,
+      keyboard: [[{ text: '⬅️ Menú IA', callback_data: 'menu:back' }]],
+    });
+  }
+}
+
 async function showCorpReport(messageId = null, directive = '') {
   await renderPanel(messageId, {
     text: '🏢 <b>HOMELAB CORP</b>\n━━━━━━━━━━━━━━━━━━━━\nConsultando a los 8 empleados y al Director…',
@@ -784,6 +837,7 @@ const COMMANDS = [
   { command: 'maint', description: 'Mantenimiento y limpieza' },
   { command: 'node2', description: 'Estado y control del Nodo 2' },
   { command: 'corp', description: 'HomeLab Corp: directivas al Director y rendición de cuentas' },
+  { command: 'dev', description: 'Aplicar un cambio de código/config y subirlo a GitHub' },
   { command: 'selftest', description: 'Diagnóstico de integraciones' },
   { command: 'help', description: 'Ayuda y comandos' },
 ];
@@ -852,6 +906,8 @@ async function handleCommand(text) {
         return showCorpProposals();
       }
       return showCorpReport(null, argument);
+    case 'dev':
+      return applyGithubChange(argument);
     case 'help':
       return notify(ui.helpText());
     case 'selftest':
@@ -866,6 +922,17 @@ async function handleCommand(text) {
 
 async function handleNatural(text) {
   const lower = text.toLowerCase();
+
+  const devPrefix = text.match(/^dev\s+(.+)$/i);
+  if (devPrefix) return applyGithubChange(devPrefix[1]);
+  if (/\b(sube|subir|publicar|versionar|commitear|commit)\b/i.test(text) &&
+      /\b(github|repo|repositorio|c[oó]digo|config(uraci[oó]n)?)\b/i.test(text)) {
+    return applyGithubChange(text);
+  }
+  if (/^(agrega|a[ñn]ade|ajusta|optimiza|cambia)\b/i.test(text) &&
+      /\b(nexus|sentinel|bot|director|updater|readme|gemini)\b/i.test(text)) {
+    return applyGithubChange(text);
+  }
 
   if (/\b(nodo\s*2|node2|homelab-node2)\b/i.test(text)) {
     if (/\b(enciende|encender|prende|prender|wake|wol)\b/i.test(lower)) {

@@ -499,7 +499,51 @@ def apply_corp_proposal(proposal_id):
     )
 
 
+def apply_github_change(directive):
+    """Pide al HomeLab-Director un cambio versionado y devuelve el hash del commit.
+
+    El Director delega en `/api/tools/repo/apply-change`, que aplica guardrails
+    físicos, valida, verifica Sentinel y hace commit/push con rollback.
+    """
+    directive = str(directive or "").strip()
+    if len(directive) < 5:
+        return _err("falta la instrucción de cambio")
+    try:
+        with httpx.Client(timeout=420, follow_redirects=True) as client:
+            response = client.post(
+                CORP_DIRECTOR_URL,
+                json={
+                    "directive": directive,
+                    "mode": "code_change",
+                    "requested_by": "telegram_user",
+                    "notify": False,
+                },
+            )
+            if response.status_code >= 400:
+                return _err(f"Director respondió HTTP {response.status_code}")
+            body = response.json() if "json" in response.headers.get("content-type", "") else {}
+    except Exception as exc:  # noqa: BLE001
+        return _err(str(exc))
+    if body.get("ok") is False:
+        return _err(str(body.get("error") or body.get("report") or "cambio rechazado")[:500])
+    gitops = body.get("gitops") or {}
+    commit = str(gitops.get("commit_hash") or body.get("commit_hash") or "sin hash")
+    rollback = bool(gitops.get("rollback"))
+    summary = (
+        ("⚠️ Cambio revertido por rollback automático. " if rollback else
+         "✅ Cambio aplicado y subido a origin/main. ")
+        + f"Commit <code>{_esc(commit)}</code>. "
+        + f"Sondas Sentinel: {_esc(str(gitops.get('probes_total') or 'n/d'))}; "
+        + f"anomalías nuevas: {_esc(str(gitops.get('anomaly_count') or 0))}. "
+        + _esc(str(body.get("summary") or body.get("report") or "")[:900])
+    )
+    return _ok(summary, body)
+
+
 DISPATCH = {
+    "apply_github_change": lambda **kwargs: apply_github_change(
+        kwargs.get("directive", "")
+    ),
     "consult_homelab_director": lambda **kwargs: consult_homelab_director(
         kwargs.get("directive", "")
     ),

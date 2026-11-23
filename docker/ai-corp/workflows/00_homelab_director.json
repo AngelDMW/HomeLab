@@ -69,7 +69,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ directive: $json.directive || 'Ejecuta una ronda inicial de inspección con los 8 empleados y entrega el primer reporte ejecutivo', employee: 'HomeLab-Director', requested_by: $json.requested_by || ($('Webhook Director').length ? 'telegram' : 'schedule') }) }}"
+        "jsonBody": "={{ JSON.stringify({ directive: (($json.body || $json).directive || 'Ejecuta una ronda inicial de inspección con los 8 empleados y entrega el primer reporte ejecutivo'), employee: 'HomeLab-Director', requested_by: (($json.body || $json).requested_by || ((($json.body || $json).mode === 'code_change') ? 'telegram_user' : 'schedule')) }) }}"
       },
       "onError": "continueRegularOutput"
     },
@@ -83,7 +83,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const task = $('Abrir tarea').first().json || {};\nconst hook = $('Webhook Director').length ? $('Webhook Director').first().json : {};\nconst directive = hook.directive || task.directive || 'Ejecuta una ronda inicial de inspección con los 8 empleados y entrega el primer reporte ejecutivo';\nreturn [{json:{\n  directive,\n  task_id: task.task_id || null,\n  round_id: 'CORP-' + new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14),\n  requested_by: hook.requested_by || ($('Webhook Director').length ? 'telegram' : 'schedule'),\n  source: $('Webhook Director').length ? 'webhook' : 'schedule'\n}}];",
+        "jsCode": "const task = $('Abrir tarea').first().json || {};\nconst hookNode = $('Webhook Director');\nconst hook = hookNode.length ? hookNode.first().json : {};\nconst body = hook.body || hook;\nconst directive = String(body.directive || task.directive || 'Ejecuta una ronda inicial de inspección con los 8 empleados y entrega el primer reporte ejecutivo');\nconst requested_by = String(body.requested_by || (hookNode.length ? 'telegram' : 'schedule'));\nconst gitops_change = body.mode === 'code_change' || body.apply_github_change === true;\nreturn [{json:{\n  directive,\n  task_id: task.task_id || null,\n  round_id: 'CORP-' + new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14),\n  requested_by,\n  gitops_change,\n  source: hookNode.length ? 'webhook' : 'schedule'\n}}];",
         "mode": "runOnceForAllItems"
       }
     },
@@ -503,6 +503,102 @@
         "responseBody": "={{ JSON.stringify({ ok:true, round_id: $('Narrativa Director').first().json.round_id, task_id: $('Narrativa Director').first().json.task_id, report: $('Narrativa Director').first().json.text, scores: $('Narrativa Director').first().json.scores }) }}",
         "options": {}
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "gitops-change-flag",
+              "leftValue": "={{ $json.gitops_change }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "gitops_if_director",
+      "name": "¿Cambio de código en repo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        350,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.1.4:8006/api/tools/repo/apply-change",
+        "sendHeaders": true,
+        "options": {
+          "timeout": 300000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Corp-Token",
+              "value": "={{ $env.CORP_INTERNAL_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ directive: $('Preparar directiva').first().json.directive, requested_by: 'telegram_user' }) }}"
+      },
+      "id": "gitops_apply_director",
+      "name": "GitOps aplicar cambio (Director)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        -320
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $('GitOps aplicar cambio (Director)').first().json || {};\nconst p = $('Preparar directiva').first().json || {};\nconst OK = r.ok === true;\nconst files = (r.files || []).join(', ') || 'sin cambios';\nconst audit = r.audit_after || {};\nconst lines = [\n  OK ? '✅ <b>CAMBIO GITOPS APLICADO POR EL DIRECTOR</b>' : '⚠️ <b>CAMBIO GITOPS NO APLICADO</b>',\n  'Directiva: ' + String(p.directive || '').slice(0, 500),\n  'Archivos: ' + files,\n  'Commit: ' + (r.commit_hash || 'sin commit'),\n  'Sondas Sentinel: ' + (audit.probes_total || 'n/d') + ' · anomalías nuevas: ' + (r.new_anomalies || []).length,\n  r.rollback ? 'Rollback automático ejecutado.' : 'Rollback: no requerido.',\n  String(r.summary || r.error || '').slice(0, 900)\n];\nreturn [{json: {\n  ok: OK,\n  round_id: p.round_id || null,\n  task_id: p.task_id || null,\n  report: lines.join('\\n'),\n  scores: [],\n  gitops: {\n    commit_hash: r.commit_hash || null,\n    files: r.files || [],\n    rollback: !!r.rollback,\n    probes_total: audit.probes_total || null,\n    anomaly_count: (r.new_anomalies || []).length\n  }\n}}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "gitops_reply_director",
+      "name": "Respuesta GitOps Director",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Respuesta GitOps Director').first().json) }}",
+        "options": {}
+      },
+      "id": "gitops_respond_director",
+      "name": "Responder GitOps Director",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1000,
+        -320
+      ]
     }
   ],
   "connections": {
@@ -543,7 +639,7 @@
       "main": [
         [
           {
-            "node": "Agente Infra",
+            "node": "¿Cambio de código en repo?",
             "type": "main",
             "index": 0
           }
@@ -718,6 +814,51 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "¿Cambio de código en repo?": {
+      "main": [
+        [
+          {
+            "node": "GitOps aplicar cambio (Director)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Agente Infra",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitOps aplicar cambio (Director)": {
+      "main": [
+        [
+          {
+            "node": "Respuesta GitOps Director",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta GitOps Director": {
+      "main": [
+        [
+          {
+            "node": "Responder GitOps Director",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder GitOps Director": {
+      "main": [
+        []
       ]
     }
   },

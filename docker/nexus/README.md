@@ -565,3 +565,10 @@ docker/nexus/
 ---
 
 **HomeLab Nexus** · Centro de mando del HomeLab · `:8888` · Documentación mantenida junto al código en `docker/nexus/README.md`.
+
+
+### 12.1 Integración con el GitOps de HomeLab Corp (2026-11-23)
+- La Oficina IA de Nexus muestra el resultado de `Agent-Updater` y `HomeLab-Director`, que ahora pueden versionar cambios reales en `github.com/AngelDMW/HomeLab` mediante `POST /api/tools/repo/apply-change` de `corp-tools-api`.
+- Cada cambio queda registrado en la tabla `git_changes` del ledger (`/api/tools/repo/history`): hash del commit, archivos, sondas de Sentinel, anomalías nuevas y si hubo rollback. El bridge SSH usa una llave dedicada montada solo en `corp-tools-api`; Nexus no maneja ni almacena esa llave.
+- Desde Telegram, `/dev <instrucción>` (o lenguaje natural) dispara el mismo flujo y devuelve el hash del commit en un único mensaje que se edita en el lugar. Si el change falla la validación o el healthcheck, se muestra «CAMBIO REVERTIDO — rollback automático» y conviene ejecutar `/audit` antes de reintentar.
+- No hay cambios en el compose de Nexus ni en su tablero: sigue en `docker/nexus`, 192 MB, con la pestaña `🏢 Oficina IA` y el poll de 4 s. La única novedad visible es el estado `reporting`/`working` de los personajes cuando hay un cambio GitOps en curso.

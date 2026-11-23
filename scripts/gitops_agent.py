@@ -117,7 +117,8 @@ def run(cmd: list[str], *, timeout: int = 120, stdin_data: str | None = None,
         return {
             "ok": proc.returncode == 0,
             "code": proc.returncode,
-            "out": (proc.stdout or "").strip(),
+            # rstrip (no strip): conserva la columna de estado de `git status --porcelain`.
+            "out": (proc.stdout or "").rstrip(),
             "err": (proc.stderr or "").strip()[:3000],
             "ms": round((time.time() - started) * 1000),
         }
@@ -157,8 +158,8 @@ def scan_content(path: str, content: str) -> list[str]:
     return findings
 
 
-def audit() -> dict:
-    """Auditoría real de Sentinel (15 sondas). Devuelve huellas comparables."""
+def _audit_once() -> dict:
+    """Una pasada de la auditoría real de Sentinel (15 sondas)."""
     try:
         import urllib.request
 
@@ -193,6 +194,15 @@ def audit() -> dict:
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc)[:300], "probes_total": 0,
                 "probes_bad": [], "anomalies": [], "anomalies_count": -1}
+
+
+def audit() -> dict:
+    """Auditoría con un reintento breve: tolera reinicios transitorios de n8n/API."""
+    result = _audit_once()
+    if not result.get("ok"):
+        time.sleep(5)
+        result = _audit_once()
+    return result
 
 
 def file_tree(limit: int = 2000) -> list[str]:
@@ -410,7 +420,16 @@ def do_apply(request: dict) -> dict:
     checks = {rel: validate(rel) for rel in changed}
     failed_checks = {k: v for k, v in checks.items() if not v.get("ok")}
     status_after = git("status", "--porcelain=v1").get("out", "")
-    actual = sorted(line[3:].strip() for line in status_after.splitlines() if line.strip())
+    actual = []
+    for line in status_after.splitlines():
+        if not line.strip():
+            continue
+        # porcelain:v1 -> "XY path" (X=índice, Y=árbol de trabajo)
+        rel = line[2:].strip()
+        if " -> " in rel:  # renombrados
+            rel = rel.split(" -> ", 1)[1]
+        actual.append(rel)
+    actual = sorted(actual)
     unexpected = [p for p in actual if p not in changed]
     if failed_checks or unexpected:
         rollback = restore(backup_dir, changed, {})

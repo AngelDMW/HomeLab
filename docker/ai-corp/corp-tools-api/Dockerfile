@@ -22,4 +22,4 @@ RUN useradd --create-home --uid 1000 corp \
 USER corp
 
 EXPOSE 8006
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8006"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8006", "--workers", "2"]

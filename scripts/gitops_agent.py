@@ -177,7 +177,7 @@ def _audit_once() -> dict:
         for key, value in probes.items():
             status = str((value or {}).get("status", "")).lower() if isinstance(value, dict) else ""
             if status and status not in {"ok", "healthy", "up"}:
-                bad.append(key)
+                bad.append(f"{key}({status})")
         fingerprints = sorted(
             hashlib.sha256(
                 json.dumps(a, ensure_ascii=False, sort_keys=True, default=str).encode()
@@ -186,14 +186,15 @@ def _audit_once() -> dict:
         )
         return {
             "ok": bool(payload.get("ok")) and not bad,
+            "sentinel_ok": bool(payload.get("ok")),
             "probes_total": len(probes),
             "probes_bad": bad,
             "anomalies": fingerprints,
             "anomalies_count": len(anomalies),
         }
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": str(exc)[:300], "probes_total": 0,
-                "probes_bad": [], "anomalies": [], "anomalies_count": -1}
+        return {"ok": False, "error": str(exc)[:300], "sentinel_ok": False,
+                "probes_total": 0, "probes_bad": [], "anomalies": [], "anomalies_count": -1}
 
 
 def audit() -> dict:

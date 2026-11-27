@@ -28,7 +28,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const _wh = $('Webhook Backup').first().json || {};\nconst d = _wh.body || _wh;\nconst directive = String(d.directive || '');\nconst run = d.run_backup === true || /respaldo|backup|copia de seguridad/i.test(directive);\nreturn [{json: {\n  dry_run: !run,\n  directive,\n  task_id: d.task_id || null,\n  round_id: d.round_id || null,\n  requested_by: d.requested_by || 'director'\n}}];",
+        "jsCode": "const _wh = $('Webhook Backup').first().json || {};\nconst d = _wh.body || _wh;\nconst directive = String(d.directive || '');\n// El respaldo 3-2-1 es la función principal del empleado: se ejecuta por defecto.\n// Solo se omite si el llamante pide explícitamente un dry run.\nconst dry = d.dry_run === true || d.run_backup === false;\nreturn [{json: {\n  dry_run: dry,\n  directive,\n  task_id: d.task_id || null,\n  round_id: d.round_id || null,\n  requested_by: d.requested_by || 'director'\n}}];",
         "mode": "runOnceForAllItems"
       }
     },

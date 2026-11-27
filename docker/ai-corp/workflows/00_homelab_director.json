@@ -83,7 +83,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const task = $('Abrir tarea').first().json || {};\nlet hook = {};\ntry { hook = $('Webhook Director').first().json || {}; } catch (e) {}\nconst body = hook.body || hook;\nconst directive = String(body.directive || task.directive || 'Ejecuta una ronda inicial de inspección con los 8 empleados y entrega el primer reporte ejecutivo');\nconst requested_by = String(body.requested_by || (body.mode === 'code_change' ? 'telegram_user' : 'schedule'));\nconst gitops_change = body.mode === 'code_change' || body.apply_github_change === true;\nreturn [{json:{\n  directive,\n  task_id: task.task_id || null,\n  round_id: 'CORP-' + new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14),\n  requested_by,\n  gitops_change,\n  source: body.mode === 'code_change' ? 'webhook' : 'schedule'\n}}];",
+        "jsCode": "const task = $('Abrir tarea').first().json || {};\nlet hook = {};\ntry { hook = $('Webhook Director').first().json || {}; } catch (e) {}\nconst body = hook.body || hook;\nconst directive = String(body.directive || task.directive || 'Ejecuta una ronda inicial de inspección con los 8 empleados y entrega el primer reporte ejecutivo');\nconst requested_by = String(body.requested_by || (body.mode === 'code_change' ? 'telegram_user' : 'schedule'));\nconst gitops_change = body.mode === 'code_change' || body.apply_github_change === true;\nreturn [{json:{\n  directive,\n  task_id: task.task_id || null,\n  round_id: 'CORP-' + new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14),\n  requested_by,\n  gitops_change,\n  notify: body.notify !== false,\n  source: body.mode === 'code_change' ? 'webhook' : 'schedule'\n}}];",
         "mode": "runOnceForAllItems"
       }
     },
@@ -599,6 +599,38 @@
         1000,
         -320
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "notify-flag",
+              "leftValue": "={{ $('Preparar directiva').first().json.notify }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "notify_if_director",
+      "name": "¿Notificar Telegram?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1900,
+        200
+      ]
     }
   ],
   "connections": {
@@ -738,7 +770,7 @@
       "main": [
         [
           {
-            "node": "Enviar Telegram",
+            "node": "¿Notificar Telegram?",
             "type": "main",
             "index": 0
           }
@@ -859,6 +891,24 @@
     "Responder GitOps Director": {
       "main": [
         []
+      ]
+    },
+    "¿Notificar Telegram?": {
+      "main": [
+        [
+          {
+            "node": "Enviar Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Calificar informes",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },

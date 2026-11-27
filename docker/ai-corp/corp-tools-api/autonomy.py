@@ -410,6 +410,13 @@ async def tools_autofix(body: dict, x_corp_token: str = Header(default="")) -> d
 # --------------------------------------------------------------------------- #
 # 2) Actualizaciones con rollback automático
 # --------------------------------------------------------------------------- #
+def _inspect_payload(target: str, reason: str) -> dict:
+    """Solo los contenedores del Nodo 1 son inspeccionables por Sentinel."""
+    if target in NODE1_SERVICES:
+        return {"action": "inspect_service", "params": {"service": target}}
+    return {"action": "log_only", "params": {"reason": reason}}
+
+
 def _candidates() -> list[dict]:
     candidates = []
     for service in sorted(NODE1_SERVICES):
@@ -635,7 +642,7 @@ async def tools_architect(body: dict, x_corp_token: str = Header(default="")) ->
         ).fetchone()
         counts = [dict(row) for row in conn.execute(
             "SELECT service, COUNT(*) AS n FROM interventions "
-            "WHERE created_at >= ? GROUP BY service ORDER BY n DESC LIMIT 5",
+            "WHERE kind='autofix' AND created_at >= ? GROUP BY service ORDER BY n DESC LIMIT 5",
             ((datetime.now(timezone.utc) - timedelta(days=7)).isoformat(),)
         ).fetchall()]
 
@@ -668,7 +675,7 @@ async def tools_architect(body: dict, x_corp_token: str = Header(default="")) ->
             ),
             "action": "review_anomaly",
             "risk": "medio",
-            "action_payload": {"action": "inspect_service", "params": {"service": target}},
+            "action_payload": _inspect_payload(target, f"{target} no es un contenedor del Nodo 1"),
             "severity": "warn",
             "evidence": [a.get("summary") if isinstance(a, dict) else str(a) for a in anomalies[:8]],
         })
@@ -683,7 +690,7 @@ async def tools_architect(body: dict, x_corp_token: str = Header(default="")) ->
                 ),
                 "action": "review_component",
                 "risk": "bajo",
-                "action_payload": {"action": "inspect_service", "params": {"service": service}},
+                "action_payload": _inspect_payload(service, f"{service} no es un contenedor del Nodo 1"),
                 "severity": "info",
                 "evidence": row,
             })
@@ -696,7 +703,7 @@ async def tools_architect(body: dict, x_corp_token: str = Header(default="")) ->
             ),
             "action": "review_qa",
             "risk": "bajo",
-            "action_payload": {"action": "inspect_service", "params": {"service": "corp-tools-api"}},
+            "action_payload": {"action": "log_only", "params": {"reason": "revisión de calidad de informes (Corp en Nodo 2)"}},
             "severity": "info",
             "evidence": {"avg_quality": avg_quality},
         })
